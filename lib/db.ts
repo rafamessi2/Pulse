@@ -329,6 +329,10 @@ export async function addExerciseToTemplate(
     reps: string;
     restSeconds: number;
     notes?: string;
+    modalidade?: 'forca' | 'cardio';
+    tipoCardio?: string;
+    tempoMinutos?: string;
+    ritmoEsforco?: string;
   }
 ): Promise<void> {
   const template = await db.workoutTemplates.get(templateId);
@@ -506,4 +510,57 @@ export async function clearAllData() {
     ]);
   });
   await seedDefaultData();
+}
+
+// Modo Treinador: exportar/importar apenas a rotina de treinos
+// Historico (workoutSessions) NUNCA e tocado.
+
+export async function exportRoutine(): Promise<string> {
+  const templates = await db.workoutTemplates.toArray();
+  const payload = {
+    version: 1,
+    type: 'pulse-routine',
+    exportedAt: new Date().toISOString(),
+    templates,
+  };
+  const json = JSON.stringify(payload);
+  // btoa nao suporta UTF-8 diretamente -- usar TextEncoder
+  const bytes = new TextEncoder().encode(json);
+  let binary = '';
+  bytes.forEach((b) => (binary += String.fromCharCode(b)));
+  return btoa(binary);
+}
+
+export async function importRoutine(code: string): Promise<void> {
+  let json: string;
+  try {
+    const binary = atob(code.trim());
+    const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
+    json = new TextDecoder().decode(bytes);
+  } catch {
+    throw new Error('Codigo invalido. Verifique se copiou tudo corretamente.');
+  }
+
+  let payload: any;
+  try {
+    payload = JSON.parse(json);
+  } catch {
+    throw new Error('Formato invalido. O codigo nao e um JSON valido.');
+  }
+
+  if (payload?.type !== 'pulse-routine' || !Array.isArray(payload?.templates)) {
+    throw new Error('Este codigo nao e uma rotina Pulse valida.');
+  }
+
+  // Substitui apenas os templates -- historico intacto
+  await db.transaction('rw', db.workoutTemplates, async () => {
+    await db.workoutTemplates.clear();
+    const now = new Date();
+    const templates = (payload.templates as any[]).map((t: any) => ({
+      ...t,
+      id: undefined,
+      updatedAt: now,
+    }));
+    await db.workoutTemplates.bulkAdd(templates);
+  });
 }

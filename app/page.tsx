@@ -294,7 +294,7 @@ export default function DashboardPage() {
   return (
     <div className="min-h-screen bg-background">
       {/* Hero Header */}
-      <div className="relative overflow-hidden px-5 pt-14 pb-8">
+      <div className="relative overflow-hidden px-5 pt-safe-lg pb-8">
         <div className="absolute inset-0 gradient-bg-soft" />
         <div className="absolute -top-20 -right-20 w-48 h-48 rounded-full bg-primary/10 blur-3xl" />
         <div className="absolute -bottom-10 -left-10 w-40 h-40 rounded-full bg-secondary/10 blur-3xl" />

@@ -36,7 +36,7 @@ export default function CardioPage() {
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
-      <div className="relative overflow-hidden px-5 pt-14 pb-6">
+      <div className="relative overflow-hidden px-5 pt-safe-lg pb-6">
         <div className="absolute inset-0" style={{ background: 'linear-gradient(135deg, rgba(168,85,247,0.12) 0%, rgba(255,61,127,0.08) 100%)' }} />
         <div className="relative flex items-center justify-between">
           <div className="flex items-center gap-3">

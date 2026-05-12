@@ -61,7 +61,7 @@ export default function HistoricoPage() {
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
-      <div className="relative overflow-hidden px-5 pt-14 pb-6">
+      <div className="relative overflow-hidden px-5 pt-safe-lg pb-6">
         <div className="absolute inset-0 gradient-bg-soft" />
         <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="relative">
           <div className="flex items-center gap-3">

@@ -17,6 +17,7 @@ import {
   X,
   AlertTriangle,
   RotateCcw,
+  Footprints,
 } from 'lucide-react';
 import { db, getLastWorkoutSession, clearDraft } from '@/lib/db';
 import { useWorkoutDraft } from '@/hooks/useWorkoutDraft';
@@ -26,7 +27,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Progress } from '@/components/ui/progress';
 import { Card, CardContent } from '@/components/ui/card';
 import { useToast } from '@/components/ui/toaster';
-import type { WorkoutTemplate, ExerciseLog, WorkoutDraft } from '@/types';
+import type { WorkoutTemplate, ExerciseLog, SetLog, WorkoutDraft } from '@/types';
 import { formatDuration } from '@/lib/utils';
 
 interface Props {
@@ -45,7 +46,7 @@ export function WorkoutSession({ template, draft, onClose }: Props) {
   );
   const displayTitle = (() => {
     const name = liveTemplate?.name ?? template.name;
-    const idx = name.indexOf(' – ');
+    const idx = name.indexOf(' - ');
     return idx !== -1 ? name.slice(idx + 3) : name;
   })();
 
@@ -89,19 +90,36 @@ export function WorkoutSession({ template, draft, onClose }: Props) {
 
   const [exerciseLogs, setExerciseLogs] = useState<ExerciseLog[]>(() => {
     if (draft) return draft.exerciseLogs;
-    return template.exercises.map((ex) => ({
-      exerciseId: ex.order,
-      exerciseName: ex.name,
-      muscleGroup: ex.muscleGroup,
-      sets: Array.from({ length: ex.sets }, (_, i) => ({
-        setNumber: i + 1,
-        targetReps: ex.reps,
-        completedReps: null,
-        weight: null,
-        completed: false,
-      })),
-      notes: '',
-    }));
+    return template.exercises.map((ex) => {
+      const isCardio = ex.modalidade === 'cardio';
+      return {
+        exerciseId: ex.order,
+        exerciseName: ex.name,
+        muscleGroup: ex.muscleGroup,
+        modalidade: ex.modalidade,
+        tipoCardio: ex.tipoCardio,
+        tempoMinutos: ex.tempoMinutos,
+        ritmoEsforco: ex.ritmoEsforco,
+        sets: isCardio
+          ? [{
+              setNumber: 1,
+              targetReps: ex.tempoMinutos ?? '-',
+              completedReps: null,
+              weight: null,
+              completed: false,
+              tempoRealizado: null,
+              distanciaKm: null,
+            }]
+          : Array.from({ length: ex.sets }, (_, i) => ({
+              setNumber: i + 1,
+              targetReps: ex.reps,
+              completedReps: null,
+              weight: null,
+              completed: false,
+            })),
+        notes: '',
+      };
+    });
   });
 
   const [previousData, setPreviousData] = useState<Record<string, { weight: number; reps: number }>>({});
@@ -129,6 +147,7 @@ export function WorkoutSession({ template, draft, onClose }: Props) {
       if (!draft) {
         setExerciseLogs((prev) =>
           prev.map((log) => {
+            if (log.modalidade === 'cardio') return log;
             const prevBest = map[log.exerciseName];
             if (!prevBest) return log;
             return {
@@ -182,6 +201,17 @@ export function WorkoutSession({ template, draft, onClose }: Props) {
     );
   };
 
+  const updateCardioSet = (exIdx: number, field: 'tempoRealizado' | 'distanciaKm', value: number | null) => {
+    setExerciseLogs((prev) =>
+      prev.map((ex, ei) =>
+        ei !== exIdx ? ex : {
+          ...ex,
+          sets: [{ ...ex.sets[0], [field]: value }],
+        }
+      )
+    );
+  };
+
   const toggleSet = (exIdx: number, setIdx: number) => {
     const newCompleted = !exerciseLogs[exIdx].sets[setIdx].completed;
     setExerciseLogs((prev) =>
@@ -195,8 +225,11 @@ export function WorkoutSession({ template, draft, onClose }: Props) {
       )
     );
     if (newCompleted) {
-      const restSecs = template.exercises[exIdx]?.restSeconds ?? 60;
-      startRest(restSecs);
+      const isCardio = exerciseLogs[exIdx].modalidade === 'cardio';
+      if (!isCardio) {
+        const restSecs = template.exercises[exIdx]?.restSeconds ?? 60;
+        startRest(restSecs);
+      }
       const nextSetIdx = setIdx + 1;
       if (nextSetIdx >= exerciseLogs[exIdx].sets.length && exIdx + 1 < exerciseLogs.length) {
         setExpandedExercise(exIdx + 1);
@@ -239,7 +272,7 @@ export function WorkoutSession({ template, draft, onClose }: Props) {
       await discardDraft();
 
       toast({
-        title: '🎉 Treino salvo!',
+        title: 'Treino salvo!',
         description: `${durationMinutes}min • ${totalVolume.toFixed(0)}kg volume`,
         variant: 'success',
       });
@@ -268,7 +301,7 @@ export function WorkoutSession({ template, draft, onClose }: Props) {
     <div className="min-h-screen bg-background">
 
       {/* Header */}
-      <div className="sticky top-0 z-30 nav-blur px-5">
+      <div className="sticky top-0 z-30 nav-blur px-5 pt-safe">
         <div className="flex items-center justify-between h-14">
           <button
             onClick={onClose}
@@ -280,7 +313,7 @@ export function WorkoutSession({ template, draft, onClose }: Props) {
 
           <div className="text-center">
             <p className="font-bold text-sm">
-              {template.letter} – {displayTitle}
+              {template.letter} &ndash; {displayTitle}
             </p>
             <div className="flex items-center justify-center gap-2">
               <p className="text-primary text-xs font-mono">{elapsedStr}</p>
@@ -293,7 +326,7 @@ export function WorkoutSession({ template, draft, onClose }: Props) {
                     exit={{ opacity: 0 }}
                     className="text-[9px] text-muted-foreground"
                   >
-                    salvando…
+                    salvando...
                   </motion.span>
                 )}
                 {saveIndicator === 'saved' && (
@@ -304,7 +337,7 @@ export function WorkoutSession({ template, draft, onClose }: Props) {
                     exit={{ opacity: 0 }}
                     className="text-[9px] text-emerald-400"
                   >
-                    ✓ salvo
+                    salvo
                   </motion.span>
                 )}
               </AnimatePresence>
@@ -320,7 +353,7 @@ export function WorkoutSession({ template, draft, onClose }: Props) {
         </div>
         <Progress value={progress} className="h-1 mb-2" />
         <p className="text-xs text-center text-muted-foreground pb-2">
-          {completedSets}/{totalSets} séries concluídas
+          {completedSets}/{totalSets} concluidos
         </p>
       </div>
 
@@ -334,7 +367,7 @@ export function WorkoutSession({ template, draft, onClose }: Props) {
           <div className="mx-5 mt-3 mb-1 rounded-xl border border-emerald-500/30 bg-emerald-500/8 px-4 py-2.5 flex items-center gap-2">
             <RotateCcw size={13} className="text-emerald-400 shrink-0" />
             <p className="text-xs text-emerald-300">
-              Treino restaurado — continuando de onde parou
+              Treino restaurado continuando de onde parou
             </p>
           </div>
         </motion.div>
@@ -365,13 +398,15 @@ export function WorkoutSession({ template, draft, onClose }: Props) {
         )}
       </AnimatePresence>
 
-      {/* Lista de exercícios */}
+      {/* Lista de exercicios */}
       <div className="px-5 py-4 space-y-3">
         {exerciseLogs.map((exLog, exIdx) => {
           const isExpanded = expandedExercise === exIdx;
+          const isCardio = exLog.modalidade === 'cardio';
           const allDone = exLog.sets.every((s) => s.completed);
           const someDone = exLog.sets.some((s) => s.completed);
           const prev = previousData[exLog.exerciseName];
+          const cardioSet = exLog.sets[0];
 
           return (
             <Card
@@ -395,20 +430,30 @@ export function WorkoutSession({ template, draft, onClose }: Props) {
                         className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${
                           allDone
                             ? 'bg-emerald-500/20 text-emerald-400'
+                            : isCardio
+                            ? 'bg-orange-500/15 text-orange-400'
                             : 'gradient-bg-soft text-primary'
                         }`}
                       >
-                        {allDone ? '✓' : exIdx + 1}
+                        {allDone ? '✓' : isCardio ? <Footprints size={14} /> : exIdx + 1}
                       </div>
                       <div className="text-left">
                         <p className="font-semibold text-sm">{exLog.exerciseName}</p>
-                        <p className="text-muted-foreground text-xs">{exLog.muscleGroup}</p>
+                        <p className="text-muted-foreground text-xs">
+                          {isCardio ? (exLog.tipoCardio ?? 'Cardio') : exLog.muscleGroup}
+                        </p>
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
-                      <span className="text-xs text-muted-foreground">
-                        {exLog.sets.filter((s) => s.completed).length}/{exLog.sets.length}
-                      </span>
+                      {isCardio ? (
+                        <span className={`text-xs font-medium ${allDone ? 'text-emerald-400' : 'text-muted-foreground'}`}>
+                          {allDone ? 'Concluido' : exLog.tempoMinutos ? `${exLog.tempoMinutos} min` : 'Cardio'}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">
+                          {exLog.sets.filter((s) => s.completed).length}/{exLog.sets.length}
+                        </span>
+                      )}
                       {isExpanded
                         ? <ChevronUp size={16} className="text-muted-foreground" />
                         : <ChevronDown size={16} className="text-muted-foreground" />
@@ -428,102 +473,191 @@ export function WorkoutSession({ template, draft, onClose }: Props) {
                     className="overflow-hidden"
                   >
                     <div className="px-4 pb-4 space-y-3">
-                      {prev && (
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/30 rounded-xl px-3 py-2">
-                          <TrendingUp size={12} className="text-emerald-400" />
-                          <span>Último: {prev.weight}kg × {prev.reps}rep</span>
-                        </div>
-                      )}
 
-                      <div className="grid grid-cols-[32px_1fr_1fr_40px] gap-2 text-xs text-muted-foreground px-1">
-                        <span>Série</span>
-                        <span className="text-center">Carga (kg)</span>
-                        <span className="text-center">Reps</span>
-                        <span />
-                      </div>
+                      {isCardio ? (
+                        /* ---- CARDIO BLOCK ---- */
+                        <>
+                          {/* Objetivo configurado */}
+                          {(exLog.tipoCardio || exLog.tempoMinutos || exLog.ritmoEsforco) && (
+                            <div className="rounded-xl bg-orange-500/8 border border-orange-500/20 px-3 py-2.5 space-y-1.5">
+                              <p className="text-[10px] font-semibold text-orange-400 uppercase tracking-wider">Objetivo do Treino</p>
+                              <div className="flex flex-wrap gap-1.5">
+                                {exLog.tipoCardio && (
+                                  <span className="text-xs bg-orange-500/15 text-orange-300 px-2 py-0.5 rounded-lg font-medium">
+                                    {exLog.tipoCardio}
+                                  </span>
+                                )}
+                                {exLog.tempoMinutos && (
+                                  <span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-lg font-medium flex items-center gap-1">
+                                    <Timer size={10} />
+                                    {exLog.tempoMinutos} min
+                                  </span>
+                                )}
+                                {exLog.ritmoEsforco && (
+                                  <span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-lg font-medium">
+                                    {exLog.ritmoEsforco}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          )}
 
-                      {exLog.sets.map((set, setIdx) => (
-                        <div
-                          key={setIdx}
-                          className={`grid grid-cols-[32px_1fr_1fr_40px] gap-2 items-center transition-opacity ${
-                            set.completed ? 'opacity-60' : ''
-                          }`}
-                        >
-                          <span className="text-sm font-bold text-center text-muted-foreground">
-                            {set.setNumber}
-                          </span>
-
-                          <div className="flex items-center gap-1">
-                            <button
-                              onClick={() => updateSet(exIdx, setIdx, 'weight', Math.max(0, (set.weight ?? 0) - 2.5))}
-                              className="w-7 h-7 rounded-lg bg-muted flex items-center justify-center active:scale-90"
-                            >
-                              <Minus size={12} />
-                            </button>
-                            <Input
-                              type="number"
-                              value={set.weight ?? ''}
-                              onChange={(e) => updateSet(exIdx, setIdx, 'weight', e.target.value ? parseFloat(e.target.value) : null)}
-                              className="h-9 text-center text-sm px-1 font-semibold"
-                              placeholder="0"
-                            />
-                            <button
-                              onClick={() => updateSet(exIdx, setIdx, 'weight', (set.weight ?? 0) + 2.5)}
-                              className="w-7 h-7 rounded-lg bg-muted flex items-center justify-center active:scale-90"
-                            >
-                              <Plus size={12} />
-                            </button>
+                          {/* Registro do resultado */}
+                          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider px-1">
+                            Registrar resultado
+                          </p>
+                          <div className={`flex items-center gap-2 transition-opacity ${cardioSet.completed ? 'opacity-60' : ''}`}>
+                            <div className="flex-1">
+                              <label className="text-[10px] text-muted-foreground block mb-1 text-center">Tempo (min)</label>
+                              <Input
+                                type="number"
+                                value={cardioSet.tempoRealizado ?? ''}
+                                onChange={(e) => updateCardioSet(exIdx, 'tempoRealizado', e.target.value ? parseFloat(e.target.value) : null)}
+                                className="h-11 text-center text-base font-bold"
+                                placeholder="--"
+                              />
+                            </div>
+                            <div className="flex-1">
+                              <label className="text-[10px] text-muted-foreground block mb-1 text-center">Distancia (km)</label>
+                              <Input
+                                type="number"
+                                value={cardioSet.distanciaKm ?? ''}
+                                onChange={(e) => updateCardioSet(exIdx, 'distanciaKm', e.target.value ? parseFloat(e.target.value) : null)}
+                                className="h-11 text-center text-base font-bold"
+                                placeholder="--"
+                                step="0.1"
+                              />
+                            </div>
+                            <div className="flex flex-col items-center gap-1 pt-4">
+                              <button
+                                onClick={() => toggleSet(exIdx, 0)}
+                                className={`w-11 h-11 rounded-xl flex items-center justify-center transition-all active:scale-90 ${
+                                  cardioSet.completed ? 'bg-emerald-500 shadow-md' : 'bg-muted'
+                                }`}
+                              >
+                                {cardioSet.completed
+                                  ? <CheckCircle2 size={20} className="text-white" />
+                                  : <Circle size={20} className="text-muted-foreground" />
+                                }
+                              </button>
+                            </div>
                           </div>
 
-                          <div className="flex items-center gap-1">
-                            <button
-                              onClick={() => updateSet(exIdx, setIdx, 'completedReps', Math.max(0, (set.completedReps ?? 0) - 1))}
-                              className="w-7 h-7 rounded-lg bg-muted flex items-center justify-center active:scale-90"
-                            >
-                              <Minus size={12} />
-                            </button>
-                            <Input
-                              type="number"
-                              value={set.completedReps ?? ''}
-                              onChange={(e) => updateSet(exIdx, setIdx, 'completedReps', e.target.value ? parseInt(e.target.value) : null)}
-                              className="h-9 text-center text-sm px-1 font-semibold"
-                              placeholder={set.targetReps}
-                            />
-                            <button
-                              onClick={() => updateSet(exIdx, setIdx, 'completedReps', (set.completedReps ?? 0) + 1)}
-                              className="w-7 h-7 rounded-lg bg-muted flex items-center justify-center active:scale-90"
-                            >
-                              <Plus size={12} />
-                            </button>
-                          </div>
-
-                          <button
-                            onClick={() => toggleSet(exIdx, setIdx)}
-                            className={`w-9 h-9 rounded-xl flex items-center justify-center transition-all active:scale-90 ${
-                              set.completed ? 'gradient-bg shadow-md' : 'bg-muted'
-                            }`}
-                          >
-                            {set.completed
-                              ? <CheckCircle2 size={18} className="text-white" />
-                              : <Circle size={18} className="text-muted-foreground" />
+                          <Textarea
+                            placeholder="Observacoes (como foi a corrida, condicoes, etc.)..."
+                            value={exLog.notes ?? ''}
+                            onChange={(e) =>
+                              setExerciseLogs((prev) =>
+                                prev.map((ex, i) =>
+                                  i === exIdx ? { ...ex, notes: e.target.value } : ex
+                                )
+                              )
                             }
-                          </button>
-                        </div>
-                      ))}
+                            className="text-xs mt-1"
+                            rows={2}
+                          />
+                        </>
+                      ) : (
+                        /* ---- MUSCULACAO BLOCK ---- */
+                        <>
+                          {prev && (
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/30 rounded-xl px-3 py-2">
+                              <TrendingUp size={12} className="text-emerald-400" />
+                              <span>Ultimo: {prev.weight}kg x {prev.reps}rep</span>
+                            </div>
+                          )}
 
-                      <Textarea
-                        placeholder="Observações do exercício…"
-                        value={exLog.notes ?? ''}
-                        onChange={(e) =>
-                          setExerciseLogs((prev) =>
-                            prev.map((ex, i) =>
-                              i === exIdx ? { ...ex, notes: e.target.value } : ex
-                            )
-                          )
-                        }
-                        className="text-xs mt-1"
-                        rows={2}
-                      />
+                          <div className="grid grid-cols-[32px_1fr_1fr_40px] gap-2 text-xs text-muted-foreground px-1">
+                            <span>Serie</span>
+                            <span className="text-center">Carga (kg)</span>
+                            <span className="text-center">Reps</span>
+                            <span />
+                          </div>
+
+                          {exLog.sets.map((set, setIdx) => (
+                            <div
+                              key={setIdx}
+                              className={`grid grid-cols-[32px_1fr_1fr_40px] gap-2 items-center transition-opacity ${
+                                set.completed ? 'opacity-60' : ''
+                              }`}
+                            >
+                              <span className="text-sm font-bold text-center text-muted-foreground">
+                                {set.setNumber}
+                              </span>
+
+                              <div className="flex items-center gap-1">
+                                <button
+                                  onClick={() => updateSet(exIdx, setIdx, 'weight', Math.max(0, (set.weight ?? 0) - 2.5))}
+                                  className="w-7 h-7 rounded-lg bg-muted flex items-center justify-center active:scale-90"
+                                >
+                                  <Minus size={12} />
+                                </button>
+                                <Input
+                                  type="number"
+                                  value={set.weight ?? ''}
+                                  onChange={(e) => updateSet(exIdx, setIdx, 'weight', e.target.value ? parseFloat(e.target.value) : null)}
+                                  className="h-9 text-center text-sm px-1 font-semibold"
+                                  placeholder="0"
+                                />
+                                <button
+                                  onClick={() => updateSet(exIdx, setIdx, 'weight', (set.weight ?? 0) + 2.5)}
+                                  className="w-7 h-7 rounded-lg bg-muted flex items-center justify-center active:scale-90"
+                                >
+                                  <Plus size={12} />
+                                </button>
+                              </div>
+
+                              <div className="flex items-center gap-1">
+                                <button
+                                  onClick={() => updateSet(exIdx, setIdx, 'completedReps', Math.max(0, (set.completedReps ?? 0) - 1))}
+                                  className="w-7 h-7 rounded-lg bg-muted flex items-center justify-center active:scale-90"
+                                >
+                                  <Minus size={12} />
+                                </button>
+                                <Input
+                                  type="number"
+                                  value={set.completedReps ?? ''}
+                                  onChange={(e) => updateSet(exIdx, setIdx, 'completedReps', e.target.value ? parseInt(e.target.value) : null)}
+                                  className="h-9 text-center text-sm px-1 font-semibold"
+                                  placeholder={set.targetReps}
+                                />
+                                <button
+                                  onClick={() => updateSet(exIdx, setIdx, 'completedReps', (set.completedReps ?? 0) + 1)}
+                                  className="w-7 h-7 rounded-lg bg-muted flex items-center justify-center active:scale-90"
+                                >
+                                  <Plus size={12} />
+                                </button>
+                              </div>
+
+                              <button
+                                onClick={() => toggleSet(exIdx, setIdx)}
+                                className={`w-9 h-9 rounded-xl flex items-center justify-center transition-all active:scale-90 ${
+                                  set.completed ? 'gradient-bg shadow-md' : 'bg-muted'
+                                }`}
+                              >
+                                {set.completed
+                                  ? <CheckCircle2 size={18} className="text-white" />
+                                  : <Circle size={18} className="text-muted-foreground" />
+                                }
+                              </button>
+                            </div>
+                          ))}
+
+                          <Textarea
+                            placeholder="Observacoes do exercicio..."
+                            value={exLog.notes ?? ''}
+                            onChange={(e) =>
+                              setExerciseLogs((prev) =>
+                                prev.map((ex, i) =>
+                                  i === exIdx ? { ...ex, notes: e.target.value } : ex
+                                )
+                              )
+                            }
+                            className="text-xs mt-1"
+                            rows={2}
+                          />
+                        </>
+                      )}
                     </div>
                   </motion.div>
                 )}
@@ -562,13 +696,13 @@ export function WorkoutSession({ template, draft, onClose }: Props) {
               <div className="w-10 h-1 bg-muted rounded-full mx-auto mb-5" />
               <h2 className="text-xl font-bold text-center mb-1">Finalizar Treino</h2>
               <p className="text-muted-foreground text-sm text-center mb-5">
-                {completedSets}/{totalSets} séries • {formatDuration(Math.round(elapsed / 60))}
+                {completedSets}/{totalSets} concluidos &bull; {formatDuration(Math.round(elapsed / 60))}
               </p>
 
               <div className="grid grid-cols-3 gap-3 mb-5">
                 {[
-                  { label: 'Séries', value: `${completedSets}/${totalSets}` },
-                  { label: 'Duração', value: formatDuration(Math.round(elapsed / 60)) },
+                  { label: 'Concluidos', value: `${completedSets}/${totalSets}` },
+                  { label: 'Duracao', value: formatDuration(Math.round(elapsed / 60)) },
                   {
                     label: 'Volume',
                     value: `${exerciseLogs.reduce((acc, ex) => acc + ex.sets.reduce((s, set) => s + (set.completed && set.weight && set.completedReps ? set.weight * set.completedReps : 0), 0), 0).toFixed(0)}kg`,
@@ -582,7 +716,7 @@ export function WorkoutSession({ template, draft, onClose }: Props) {
               </div>
 
               <Textarea
-                placeholder="Como foi o treino? Adicione observações…"
+                placeholder="Como foi o treino? Adicione observacoes..."
                 value={workoutNotes}
                 onChange={(e) => setWorkoutNotes(e.target.value)}
                 className="mb-4"
@@ -591,7 +725,7 @@ export function WorkoutSession({ template, draft, onClose }: Props) {
 
               <Button onClick={handleFinish} className="w-full h-12" disabled={saving}>
                 <Save size={18} />
-                {saving ? 'Salvando…' : 'Salvar no Histórico'}
+                {saving ? 'Salvando...' : 'Salvar no Historico'}
               </Button>
               <Button variant="ghost" onClick={() => setShowFinish(false)} className="w-full mt-2">
                 Continuar treinando
@@ -625,8 +759,8 @@ export function WorkoutSession({ template, draft, onClose }: Props) {
                 </div>
                 <h2 className="text-lg font-bold text-center">Cancelar treino?</h2>
                 <p className="text-muted-foreground text-sm text-center">
-                  Todo o progresso desta sessão será <strong>descartado</strong> e removido
-                  do rascunho. Esta ação não pode ser desfeita.
+                  Todo o progresso desta sessao sera <strong>descartado</strong> e removido
+                  do rascunho. Esta acao nao pode ser desfeita.
                 </p>
               </div>
               <div className="flex flex-col gap-2">

@@ -9,6 +9,11 @@ export interface Exercise {
   restSeconds: number;
   notes?: string;
   order: number;
+  // Cardio fields (optional -- only present when modalidade === 'cardio')
+  modalidade?: 'forca' | 'cardio';
+  tipoCardio?: string;
+  tempoMinutos?: string;
+  ritmoEsforco?: string;
 }
 
 export interface WorkoutTemplate {
@@ -28,6 +33,9 @@ export interface SetLog {
   weight: number | null;
   completed: boolean;
   notes?: string;
+  // Cardio-only fields
+  tempoRealizado?: number | null;
+  distanciaKm?: number | null;
 }
 
 export interface ExerciseLog {
@@ -37,6 +45,11 @@ export interface ExerciseLog {
   sets: SetLog[];
   notes?: string;
   previousBest?: { weight: number; reps: number };
+  // Cardio snapshot fields (preserved from template at session start)
+  modalidade?: 'forca' | 'cardio';
+  tipoCardio?: string;
+  tempoMinutos?: string;
+  ritmoEsforco?: string;
 }
 
 export interface WorkoutSession {

@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   ChevronLeft, Pencil, Check, X, Dumbbell, Info,
   ChevronDown, ChevronUp, History, Tag, Plus, Trash2,
-  GripVertical, Minus,
+  GripVertical, Minus, Timer,
 } from 'lucide-react';
 import Link from 'next/link';
 import {
@@ -27,6 +27,7 @@ import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/components/ui/toaster';
 
 type EditKind = 'title' | 'exercise-name' | 'exercise-sets' | 'exercise-reps';
+type Modalidade = 'forca' | 'cardio';
 
 interface EditState {
   kind: EditKind;
@@ -44,19 +45,33 @@ const LETTERS = 'ABCDEFGHIJ'.split('');
 const MUSCLE_GROUPS = [
   'Peito', 'Costas', 'Ombros', 'Tríceps', 'Bíceps',
   'Quadríceps', 'Posterior', 'Glúteos', 'Panturrilha',
-  'Abdômen', 'Lombar', 'Trapézio', 'Antebraço',
+  'Abdômen', 'Lombar', 'Trapézio', 'Antebraco',
 ];
 
 interface NewExerciseForm {
+  modalidade: Modalidade;
   name: string;
+  // forca
   muscleGroup: string;
   sets: string;
   reps: string;
   restSeconds: string;
+  // cardio
+  tipoCardio: string;
+  tempoMinutos: string;
+  ritmoEsforco: string;
 }
 
 const emptyExForm = (): NewExerciseForm => ({
-  name: '', muscleGroup: 'Peito', sets: '3', reps: '12', restSeconds: '60',
+  modalidade: 'forca',
+  name: '',
+  muscleGroup: 'Peito',
+  sets: '3',
+  reps: '12',
+  restSeconds: '60',
+  tipoCardio: '',
+  tempoMinutos: '',
+  ritmoEsforco: '',
 });
 
 export default function ExerciciosPage() {
@@ -153,18 +168,34 @@ export default function ExerciciosPage() {
 
   const handleAddExercise = async () => {
     if (!newExForm.name.trim()) { toast({ title: 'Nome é obrigatório', variant: 'error' }); return; }
-    const sets = parseInt(newExForm.sets);
-    const rest = parseInt(newExForm.restSeconds);
-    if (isNaN(sets) || sets < 1) { toast({ title: 'Mínimo 1 série', variant: 'error' }); return; }
+
     setCreatingEx(true);
     try {
-      await addExerciseToTemplate(addingExerciseToTemplateId!, {
-        name: newExForm.name,
-        muscleGroup: newExForm.muscleGroup,
-        sets,
-        reps: newExForm.reps || '12',
-        restSeconds: isNaN(rest) ? 60 : rest,
-      });
+      if (newExForm.modalidade === 'cardio') {
+        await addExerciseToTemplate(addingExerciseToTemplateId!, {
+          name: newExForm.name,
+          muscleGroup: 'Cardio',
+          sets: 1,
+          reps: newExForm.tempoMinutos || '-',
+          restSeconds: 0,
+          modalidade: 'cardio',
+          tipoCardio: newExForm.tipoCardio || undefined,
+          tempoMinutos: newExForm.tempoMinutos || undefined,
+          ritmoEsforco: newExForm.ritmoEsforco || undefined,
+        });
+      } else {
+        const sets = parseInt(newExForm.sets);
+        const rest = parseInt(newExForm.restSeconds);
+        if (isNaN(sets) || sets < 1) { toast({ title: 'Mínimo 1 série', variant: 'error' }); setCreatingEx(false); return; }
+        await addExerciseToTemplate(addingExerciseToTemplateId!, {
+          name: newExForm.name,
+          muscleGroup: newExForm.muscleGroup,
+          sets,
+          reps: newExForm.reps || '12',
+          restSeconds: isNaN(rest) ? 60 : rest,
+          modalidade: 'forca',
+        });
+      }
       toast({ title: '✅ Exercício adicionado!', variant: 'success' });
       setAddingExerciseToTemplateId(null);
       setNewExForm(emptyExForm());
@@ -193,7 +224,7 @@ export default function ExerciciosPage() {
     <div className="min-h-screen bg-background">
 
       {/* Header */}
-      <div className="relative overflow-hidden px-5 pt-14 pb-6">
+      <div className="relative overflow-hidden px-5 pt-safe-lg pb-6">
         <div className="absolute inset-0 gradient-bg-soft" />
         <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="relative">
           <div className="flex items-center gap-3">
@@ -356,6 +387,7 @@ export default function ExerciciosPage() {
 
                           <AnimatePresence mode="popLayout">
                             {template.exercises.map((ex, exIdx) => {
+                              const isCardioEx = ex.modalidade === 'cardio';
                               const isEditingName = editing?.kind === 'exercise-name' && editing.templateId === template.id && editing.exerciseOrder === ex.order;
                               const isEditingSets = editing?.kind === 'exercise-sets' && editing.templateId === template.id && editing.exerciseOrder === ex.order;
                               const isEditingReps = editing?.kind === 'exercise-reps' && editing.templateId === template.id && editing.exerciseOrder === ex.order;
@@ -392,7 +424,36 @@ export default function ExerciciosPage() {
                                         Histórico mantém o nome original
                                       </p>
                                     </div>
+                                  ) : isCardioEx ? (
+                                    /* Cardio exercise row */
+                                    <div className="flex items-center gap-2 px-2 py-2">
+                                      <span className="text-[10px] font-bold text-muted-foreground text-center w-5 shrink-0">{ex.order}</span>
+                                      <div className="flex-1 min-w-0">
+                                        <div className="flex items-center gap-1">
+                                          <Timer size={10} className="text-orange-400 shrink-0" />
+                                          <p className="text-sm font-medium truncate">{ex.name}</p>
+                                          <button
+                                            onClick={() => setEditing({ kind: 'exercise-name', templateId: template.id!, exerciseOrder: ex.order, value: ex.name })}
+                                            className="w-5 h-5 rounded flex items-center justify-center hover:text-primary transition-colors shrink-0 active:scale-90"
+                                          >
+                                            <Pencil size={10} />
+                                          </button>
+                                        </div>
+                                        <div className="flex flex-wrap gap-1 mt-0.5">
+                                          {ex.tipoCardio && <Badge variant="muted" className="text-[9px] px-1.5 py-0">{ex.tipoCardio}</Badge>}
+                                          {ex.tempoMinutos && <Badge variant="muted" className="text-[9px] px-1.5 py-0">{ex.tempoMinutos} min</Badge>}
+                                          {ex.ritmoEsforco && <Badge variant="muted" className="text-[9px] px-1.5 py-0">{ex.ritmoEsforco}</Badge>}
+                                        </div>
+                                      </div>
+                                      <button
+                                        onClick={() => setDeletingExercise({ templateId: template.id!, order: ex.order, name: ex.name })}
+                                        className="w-8 h-8 rounded-lg hover:bg-red-500/15 hover:text-red-400 flex items-center justify-center transition-colors active:scale-90"
+                                      >
+                                        <Trash2 size={13} />
+                                      </button>
+                                    </div>
                                   ) : (
+                                    /* Forca exercise row */
                                     <div className="grid grid-cols-[20px_1fr_52px_52px_36px] gap-1.5 items-center px-2 py-2">
                                       <span className="text-[10px] font-bold text-muted-foreground text-center">{ex.order}</span>
 
@@ -471,45 +532,102 @@ export default function ExerciciosPage() {
                                   <Plus size={12} /> Novo exercício
                                 </p>
 
+                                {/* Toggle Modalidade */}
+                                <div className="flex rounded-xl overflow-hidden border border-border/40 bg-muted/30 p-0.5 gap-0.5">
+                                  <button
+                                    onClick={() => setNewExForm((f) => ({ ...f, modalidade: 'forca' }))}
+                                    className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition-all ${newExForm.modalidade === 'forca' ? 'gradient-bg text-white shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+                                  >
+                                    <span>🏋️‍♂️</span> Musculação
+                                  </button>
+                                  <button
+                                    onClick={() => setNewExForm((f) => ({ ...f, modalidade: 'cardio' }))}
+                                    className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition-all ${newExForm.modalidade === 'cardio' ? 'bg-orange-500 text-white shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+                                  >
+                                    <span>🏃‍♂️</span> Cardio
+                                  </button>
+                                </div>
+
+                                {/* Nome (sempre visível) */}
                                 <Input
-                                  autoFocus placeholder="Nome do exercício"
+                                  autoFocus
+                                  placeholder={newExForm.modalidade === 'cardio' ? 'Nome (ex: Corrida na Rua, Esteira)' : 'Nome do exercício'}
                                   value={newExForm.name}
                                   onChange={(e) => setNewExForm((f) => ({ ...f, name: e.target.value }))}
                                   className="h-10 text-sm"
                                 />
 
-                                <div>
-                                  <label className="text-[10px] text-muted-foreground uppercase tracking-wider block mb-1.5">Grupo Muscular</label>
-                                  <div className="flex flex-wrap gap-1.5">
-                                    {MUSCLE_GROUPS.map((g) => (
-                                      <button
-                                        key={g}
-                                        onClick={() => setNewExForm((f) => ({ ...f, muscleGroup: g }))}
-                                        className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${newExForm.muscleGroup === g ? 'gradient-bg text-white' : 'bg-muted text-muted-foreground hover:text-foreground'}`}
-                                      >
-                                        {g}
-                                      </button>
-                                    ))}
-                                  </div>
-                                </div>
+                                {newExForm.modalidade === 'forca' ? (
+                                  <>
+                                    {/* Grupo Muscular */}
+                                    <div>
+                                      <label className="text-[10px] text-muted-foreground uppercase tracking-wider block mb-1.5">Grupo Muscular</label>
+                                      <div className="flex flex-wrap gap-1.5">
+                                        {MUSCLE_GROUPS.map((g) => (
+                                          <button
+                                            key={g}
+                                            onClick={() => setNewExForm((f) => ({ ...f, muscleGroup: g }))}
+                                            className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${newExForm.muscleGroup === g ? 'gradient-bg text-white' : 'bg-muted text-muted-foreground hover:text-foreground'}`}
+                                          >
+                                            {g}
+                                          </button>
+                                        ))}
+                                      </div>
+                                    </div>
 
-                                <div className="grid grid-cols-3 gap-2">
-                                  {[
-                                    { label: 'Séries', key: 'sets', type: 'number', ph: '3' },
-                                    { label: 'Reps', key: 'reps', type: 'text', ph: '12' },
-                                    { label: 'Descanso (s)', key: 'restSeconds', type: 'number', ph: '60' },
-                                  ].map(({ label, key, type, ph }) => (
-                                    <div key={key}>
-                                      <label className="text-[10px] text-muted-foreground block mb-1">{label}</label>
+                                    {/* Séries / Reps / Descanso */}
+                                    <div className="grid grid-cols-3 gap-2">
+                                      {[
+                                        { label: 'Séries', key: 'sets', type: 'number', ph: '3' },
+                                        { label: 'Reps', key: 'reps', type: 'text', ph: '12' },
+                                        { label: 'Descanso (s)', key: 'restSeconds', type: 'number', ph: '60' },
+                                      ].map(({ label, key, type, ph }) => (
+                                        <div key={key}>
+                                          <label className="text-[10px] text-muted-foreground block mb-1">{label}</label>
+                                          <Input
+                                            type={type} placeholder={ph}
+                                            value={(newExForm as any)[key]}
+                                            onChange={(e) => setNewExForm((f) => ({ ...f, [key]: e.target.value }))}
+                                            className="h-9 text-center text-sm font-semibold"
+                                          />
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </>
+                                ) : (
+                                  /* Campos Cardio */
+                                  <div className="space-y-2">
+                                    <div>
+                                      <label className="text-[10px] text-muted-foreground uppercase tracking-wider block mb-1">Tipo de Treino</label>
                                       <Input
-                                        type={type} placeholder={ph}
-                                        value={(newExForm as any)[key]}
-                                        onChange={(e) => setNewExForm((f) => ({ ...f, [key]: e.target.value }))}
-                                        className="h-9 text-center text-sm font-semibold"
+                                        placeholder="ex: Zona 2 regenerativa, Intervalado"
+                                        value={newExForm.tipoCardio}
+                                        onChange={(e) => setNewExForm((f) => ({ ...f, tipoCardio: e.target.value }))}
+                                        className="h-9 text-sm"
                                       />
                                     </div>
-                                  ))}
-                                </div>
+                                    <div className="grid grid-cols-2 gap-2">
+                                      <div>
+                                        <label className="text-[10px] text-muted-foreground uppercase tracking-wider block mb-1">Tempo/Duração</label>
+                                        <Input
+                                          placeholder="ex: 30-40 min"
+                                          value={newExForm.tempoMinutos}
+                                          onChange={(e) => setNewExForm((f) => ({ ...f, tempoMinutos: e.target.value }))}
+                                          className="h-9 text-sm"
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="text-[10px] text-muted-foreground uppercase tracking-wider block mb-1">Ritmo/Esforço</label>
+                                        <Input
+                                          placeholder="ex: Pace 6:00, Leve"
+                                          value={newExForm.ritmoEsforco}
+                                          onChange={(e) => setNewExForm((f) => ({ ...f, ritmoEsforco: e.target.value }))}
+                                          className="h-9 text-sm"
+                                        />
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
 
                                 <div className="flex gap-2">
                                   <Button onClick={handleAddExercise} disabled={creatingEx || !newExForm.name.trim()} className="flex-1 h-9 text-sm">
@@ -568,7 +686,7 @@ export default function ExerciciosPage() {
 
                   <div>
                     <label className="text-[10px] text-muted-foreground uppercase tracking-wider block mb-2">
-                      Título  <span className="normal-case text-muted-foreground/60">(ex: Peito & Tríceps)</span>
+                      Título  <span className="normal-case text-muted-foreground/60">(ex: Peito &amp; Tríceps)</span>
                     </label>
                     <Input
                       placeholder="Nome do grupo muscular"

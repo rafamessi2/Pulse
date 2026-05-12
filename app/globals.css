@@ -112,6 +112,16 @@
   .pb-nav {
     padding-bottom: calc(4.5rem + env(safe-area-inset-bottom, 0px));
   }
+
+  /* Padding superior que respeita o notch/Dynamic Island + respiro extra */
+  .pt-safe {
+    padding-top: calc(env(safe-area-inset-top, 0px) + 1rem);
+  }
+
+  /* Versão maior para headers de página com gradiente de fundo */
+  .pt-safe-lg {
+    padding-top: calc(env(safe-area-inset-top, 0px) + 3.5rem);
+  }
 }
 
 /* Loading skeleton animation */
