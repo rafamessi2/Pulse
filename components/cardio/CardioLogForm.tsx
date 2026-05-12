@@ -58,6 +58,7 @@ export function CardioLogForm({ template, onClose }: Props) {
         avgHeartRate: form.avgHeartRate ? parseInt(form.avgHeartRate) : undefined,
         perceivedEffort: form.perceivedEffort,
         notes: form.notes || undefined,
+        origem: 'cardio_avulso',
       });
       toast({ title: '🏃 Corrida salva!', description: `${distance.toFixed(2)} km registrados`, variant: 'success' });
       onClose();
@@ -86,7 +87,10 @@ export function CardioLogForm({ template, onClose }: Props) {
         className="w-full bg-card rounded-t-3xl border-t border-border/50 max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Handle */}
+        {/* Drag handle + Handle */}
+        <div className="flex justify-center pt-3 pb-1">
+          <div className="w-10 h-1 bg-muted rounded-full" />
+        </div>
         <div className="flex items-center justify-between px-5 pt-4 pb-4 sticky top-0 bg-card border-b border-border/30">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl gradient-bg flex items-center justify-center">
@@ -162,11 +166,13 @@ export function CardioLogForm({ template, onClose }: Props) {
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
+              transition={{ type: 'spring', stiffness: 400, damping: 28 }}
               className="rounded-2xl gradient-bg-soft border border-primary/20 p-4 text-center"
             >
-              <p className="text-muted-foreground text-xs mb-1">Pace Médio Calculado</p>
-              <p className="text-3xl font-bold gradient-text">
-                {pace.min}:{String(pace.sec).padStart(2, '0')}<span className="text-lg text-muted-foreground font-normal">/km</span>
+              <p className="text-muted-foreground text-[11px] font-semibold uppercase tracking-wider mb-1">⚡ Pace Médio Calculado</p>
+              <p className="text-4xl font-bold gradient-text">
+                {pace.min}:{String(pace.sec).padStart(2, '0')}
+                <span className="text-base text-muted-foreground font-normal ml-1">/km</span>
               </p>
             </motion.div>
           )}
@@ -185,18 +191,23 @@ export function CardioLogForm({ template, onClose }: Props) {
 
           {/* Perceived effort */}
           <div>
-            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-2">
-              Esforço Percebido — <span className="gradient-text">{form.perceivedEffort}/10</span>
-            </label>
-            <p className="text-sm text-center mb-3 text-muted-foreground">{EFFORT_LABELS[form.perceivedEffort]}</p>
-            <div className="flex gap-1.5">
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                Esforço Percebido
+              </label>
+              <span className="gradient-text font-bold text-sm">{form.perceivedEffort}/10</span>
+            </div>
+            <p className="text-xs text-center mb-3 text-muted-foreground font-medium">{EFFORT_LABELS[form.perceivedEffort]}</p>
+            <div className="flex gap-1">
               {Array.from({ length: 10 }, (_, i) => i + 1).map((v) => (
                 <button
                   key={v}
                   onClick={() => set('perceivedEffort', v)}
-                  className={`flex-1 h-8 rounded-lg text-xs font-bold transition-all active:scale-90 ${
-                    v <= form.perceivedEffort
-                      ? 'gradient-bg text-white'
+                  className={`flex-1 h-10 rounded-lg text-xs font-bold transition-all active:scale-90 ${
+                    v === form.perceivedEffort
+                      ? 'gradient-bg text-white scale-105 shadow-md'
+                      : v < form.perceivedEffort
+                      ? 'gradient-bg text-white opacity-60'
                       : 'bg-muted text-muted-foreground'
                   }`}
                 >
@@ -217,8 +228,8 @@ export function CardioLogForm({ template, onClose }: Props) {
             />
           </div>
 
-          <Button onClick={handleSave} className="w-full h-12" disabled={saving}>
-            <Save size={18} />
+          <Button onClick={handleSave} className="w-full h-14 text-base rounded-2xl" disabled={saving}>
+            <Save size={19} />
             {saving ? 'Salvando…' : 'Salvar Corrida'}
           </Button>
           <div className="h-4" />

@@ -33,6 +33,9 @@ export default function TreinoPage() {
     });
   }, []);
 
+  const stripPrefix = (name: string) =>
+    name.replace(/^Treino [A-Za-z]+ [-–] /, '').replace(/^Treino [A-Za-z]+ - /, '');
+
   const handleStartFresh = (template: WorkoutTemplate) => {
     setActiveDraft(undefined);
     setSelectedTemplate(template);
@@ -84,14 +87,11 @@ export default function TreinoPage() {
     draftAgeMinutes < 1
       ? 'agora mesmo'
       : draftAgeMinutes < 60
-      ? `${draftAgeMinutes}min atrás`
-      : `${Math.floor(draftAgeMinutes / 60)}h atrás`;
+      ? `${draftAgeMinutes}min atras`
+      : `${Math.floor(draftAgeMinutes / 60)}h atras`;
 
   const draftCompletedSets = draft
-    ? draft.exerciseLogs.reduce(
-        (acc, ex) => acc + ex.sets.filter((s) => s.completed).length,
-        0
-      )
+    ? draft.exerciseLogs.reduce((acc, ex) => acc + ex.sets.filter((s) => s.completed).length, 0)
     : 0;
   const draftTotalSets = draft
     ? draft.exerciseLogs.reduce((acc, ex) => acc + ex.sets.length, 0)
@@ -108,7 +108,7 @@ export default function TreinoPage() {
               <Dumbbell size={20} className="text-white" />
             </div>
             <div>
-              <h1 className="text-xl font-bold">Musculação</h1>
+              <h1 className="text-xl font-bold">Treinos</h1>
               <p className="text-muted-foreground text-xs">Escolha o treino de hoje</p>
             </div>
           </div>
@@ -126,8 +126,8 @@ export default function TreinoPage() {
               exit={{ opacity: 0, y: -8, scale: 0.97 }}
               transition={{ type: 'spring', stiffness: 380, damping: 30 }}
             >
-              <Card className="border-primary/40 overflow-hidden"
-                style={{ background: 'linear-gradient(135deg, rgba(255,61,127,0.08) 0%, rgba(168,85,247,0.08) 100%)' }}>
+              <Card className="border-primary/40 overflow-hidden shadow-lg"
+                style={{ background: 'linear-gradient(135deg, rgba(255,61,127,0.10) 0%, rgba(168,85,247,0.10) 100%)' }}>
                 <CardContent className="p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-start gap-3 flex-1 min-w-0">
@@ -142,7 +142,7 @@ export default function TreinoPage() {
                           </Badge>
                         </div>
                         <p className="text-muted-foreground text-xs truncate mt-0.5">
-                          {draftTemplate!.name.replace(/^Treino [A-E] – /, '')}
+                          {stripPrefix(draftTemplate!.name)}
                         </p>
                         <div className="flex items-center gap-3 mt-1.5 text-xs text-muted-foreground">
                           <span className="flex items-center gap-1">
@@ -151,7 +151,7 @@ export default function TreinoPage() {
                           </span>
                           <span className="flex items-center gap-1">
                             <Zap size={10} className="text-primary" />
-                            {draftCompletedSets}/{draftTotalSets} séries
+                            {draftCompletedSets}/{draftTotalSets} series
                           </span>
                         </div>
                       </div>
@@ -190,6 +190,12 @@ export default function TreinoPage() {
           {templates?.map((template, i) => {
             const last = getLastSession(template.id!);
             const isCurrentDraft = draft?.templateId === template.id && showDraftBanner;
+            const hasCardio = template.exercises.some((e) => e.modalidade === 'cardio');
+            const forcaGroups = [...new Set(
+              template.exercises
+                .filter((e) => e.modalidade !== 'cardio')
+                .map((e) => e.muscleGroup)
+            )];
 
             return (
               <motion.div
@@ -198,59 +204,70 @@ export default function TreinoPage() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: i * 0.07, duration: 0.3 }}
               >
-                <button
-                  onClick={() => handleStartFresh(template)}
-                  className="w-full text-left"
-                >
-                  <Card
-                    className={`glass border-border/30 hover:border-primary/30 hover:card-glow transition-all active:scale-[0.98] ${
-                      isCurrentDraft ? 'border-primary/40' : ''
-                    }`}
-                  >
+                <button onClick={() => handleStartFresh(template)} className="w-full text-left">
+                  <Card className={`border transition-all active:scale-[0.98] ${
+                    isCurrentDraft
+                      ? 'border-primary/40 bg-primary/5'
+                      : 'glass border-border/30 hover:border-primary/30 hover:card-glow'
+                  }`}>
                     <CardContent className="p-4">
-                      <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 rounded-2xl gradient-bg flex items-center justify-center font-bold text-white text-xl shadow-md shrink-0">
+                      <div className="flex items-center gap-3.5">
+                        <div className="w-12 h-12 rounded-2xl gradient-bg flex items-center justify-center font-bold text-white text-xl shadow-md shrink-0 relative">
                           {template.letter}
+                          {isCurrentDraft && (
+                            <span className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-primary border-2 border-background animate-pulse" />
+                          )}
                         </div>
 
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <p className="font-bold text-base">
-                              {template.name.replace(/^Treino [A-E] – /, '')}
+                          <div className="flex items-center gap-2">
+                            <p className="font-bold text-base truncate">
+                              {stripPrefix(template.name)}
                             </p>
                             {isCurrentDraft && (
-                              <Badge variant="default" className="text-[9px] px-1.5 py-0">
+                              <Badge variant="default" className="text-[9px] px-1.5 py-0 shrink-0">
                                 Em andamento
                               </Badge>
                             )}
                           </div>
-                          <p className="text-muted-foreground text-xs mt-0.5">
-                            {template.description}
-                          </p>
-                          <div className="flex items-center gap-3 mt-2">
+                          {template.description && (
+                            <p className="text-muted-foreground text-xs mt-0.5 truncate">
+                              {template.description}
+                            </p>
+                          )}
+                          <div className="flex items-center gap-3 mt-1.5">
                             <span className="text-xs text-muted-foreground flex items-center gap-1">
-                              <Zap size={11} className="text-primary" />
-                              {template.exercises.length} exercícios
+                              <Zap size={10} className="text-primary" />
+                              <span className="font-medium text-foreground">{template.exercises.length}</span> exercícios
                             </span>
                             {last && (
                               <span className="text-xs text-muted-foreground flex items-center gap-1">
-                                <Clock size={11} />
+                                <Clock size={10} />
                                 {formatDate(new Date(last.date))}
                               </span>
                             )}
                           </div>
                         </div>
 
-                        <ChevronRight size={18} className="text-muted-foreground shrink-0" />
+                        <div className="w-8 h-8 rounded-xl bg-muted/60 flex items-center justify-center shrink-0">
+                          <ChevronRight size={16} className="text-muted-foreground" />
+                        </div>
                       </div>
 
-                      <div className="flex gap-1.5 flex-wrap mt-3">
-                        {[...new Set(template.exercises.map((e) => e.muscleGroup))].map((g) => (
-                          <Badge key={g} variant="muted" className="text-[10px] px-2 py-0.5">
-                            {g}
-                          </Badge>
-                        ))}
-                      </div>
+                      {(hasCardio || forcaGroups.length > 0) && (
+                        <div className="flex gap-1.5 flex-wrap mt-3 pt-3 border-t border-border/20">
+                          {hasCardio && (
+                            <Badge variant="muted" className="text-[10px] px-2 py-0.5 text-orange-400 bg-orange-500/10">
+                              🏃 Cardio
+                            </Badge>
+                          )}
+                          {forcaGroups.map((g) => (
+                            <Badge key={g} variant="muted" className="text-[10px] px-2 py-0.5">
+                              {g}
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
                     </CardContent>
                   </Card>
                 </button>

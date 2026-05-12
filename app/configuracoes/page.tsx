@@ -37,7 +37,6 @@ export default function ConfiguracoesPage() {
   const cardioCount = useLiveQuery(() => db.cardioSessions.count());
   const templateCount = useLiveQuery(() => db.workoutTemplates.count());
 
-  // ── Backup completo ──────────────────────────────────────────────────────────
   const handleExport = async () => {
     try {
       const data = await exportAllData();
@@ -73,7 +72,7 @@ export default function ConfiguracoesPage() {
     try {
       await clearAllData();
       setShowClearConfirm(false);
-      toast({ title: 'Dados apagados', description: 'Templates padrao restaurados', variant: 'default' });
+      toast({ title: 'Historico apagado', description: 'Rotina e configuracoes preservadas', variant: 'default' });
     } catch {
       toast({ title: 'Erro ao limpar dados', variant: 'error' });
     }
@@ -86,7 +85,6 @@ export default function ConfiguracoesPage() {
     toast({ title: 'Nome atualizado!', variant: 'success' });
   };
 
-  // ── Modo Treinador ───────────────────────────────────────────────────────────
   const handleExportRoutine = async () => {
     try {
       const code = await exportRoutine();
@@ -126,8 +124,8 @@ export default function ConfiguracoesPage() {
               <Settings size={20} className="text-white" />
             </div>
             <div>
-              <h1 className="text-xl font-bold">Configuracoes</h1>
-              <p className="text-muted-foreground text-xs">Personalizacao e dados</p>
+              <h1 className="text-xl font-bold">Configurações</h1>
+              <p className="text-muted-foreground text-xs">Personalização e dados</p>
             </div>
           </div>
         </motion.div>
@@ -145,8 +143,8 @@ export default function ConfiguracoesPage() {
                   <User size={22} className="text-white" />
                 </div>
                 <div className="flex-1">
-                  <p className="font-semibold">{settings?.userName ?? 'Usuaria'}</p>
-                  <p className="text-muted-foreground text-xs">Treinos • App Pulse</p>
+                  <p className="font-semibold">{settings?.userName ?? 'Usuária'}</p>
+                  <p className="text-muted-foreground text-xs">Pulse Fit Tracker</p>
                 </div>
                 <button
                   onClick={() => { setUserName(settings?.userName ?? ''); setEditingName(!editingName); }}
@@ -193,13 +191,13 @@ export default function ConfiguracoesPage() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 {[
-                  { label: 'Treinos', value: workoutCount ?? 0, emoji: '🏋' },
+                  { label: 'Treinos', value: workoutCount ?? 0, emoji: '🏋️' },
                   { label: 'Corridas', value: cardioCount ?? 0, emoji: '🏃' },
                 ].map((stat) => (
-                  <div key={stat.label} className="bg-muted/40 rounded-xl p-3 text-center">
-                    <p className="text-2xl">{stat.emoji}</p>
-                    <p className="font-bold text-lg gradient-text">{stat.value}</p>
-                    <p className="text-muted-foreground text-xs">{stat.label}</p>
+                  <div key={stat.label} className="bg-muted/40 rounded-xl p-3 text-center flex flex-col items-center gap-1">
+                    <p className="text-2xl leading-none">{stat.emoji}</p>
+                    <p className="font-bold text-2xl gradient-text leading-none">{stat.value}</p>
+                    <p className="text-muted-foreground text-xs font-medium">{stat.label}</p>
                   </div>
                 ))}
               </div>
@@ -217,8 +215,8 @@ export default function ConfiguracoesPage() {
                   <Dumbbell size={18} className="text-white" />
                 </div>
                 <div className="flex-1">
-                  <p className="font-semibold text-sm">Gerenciar Exercicios</p>
-                  <p className="text-muted-foreground text-xs">Renomear exercicios dos treinos ABCDE</p>
+                  <p className="font-semibold text-sm">Gerenciar Treinos</p>
+                  <p className="text-muted-foreground text-xs">Rotina, exercicios, series e cardio</p>
                 </div>
                 <ChevronRight size={16} className="text-muted-foreground" />
               </CardContent>
@@ -232,7 +230,6 @@ export default function ConfiguracoesPage() {
           <Card className="glass border-border/30">
             <CardContent className="p-4 space-y-4">
 
-              {/* Info */}
               <div className="flex gap-2.5 rounded-xl bg-primary/8 border border-primary/20 p-3">
                 <Users size={15} className="text-primary mt-0.5 shrink-0" />
                 <p className="text-xs text-muted-foreground leading-relaxed">
@@ -263,7 +260,7 @@ export default function ConfiguracoesPage() {
                     <p className="text-muted-foreground text-xs">
                       {coachCopied
                         ? 'Cole no WhatsApp, email ou Notes'
-                        : `${templateCount ?? 0} treinos • copia codigo para a area de transferencia`}
+                        : `${templateCount ?? 0} treinos - copia codigo para a area de transferencia`}
                     </p>
                   </div>
                 </div>
@@ -411,8 +408,8 @@ export default function ConfiguracoesPage() {
                     <Trash2 size={18} className="text-red-400" />
                   </div>
                   <div className="flex-1 text-left">
-                    <p className="font-semibold text-sm text-red-400">Limpar Todos os Dados</p>
-                    <p className="text-muted-foreground text-xs">Remove historico e restaura templates padrao</p>
+                    <p className="font-semibold text-sm text-red-400">Limpar Historico</p>
+                    <p className="text-muted-foreground text-xs">Apaga treinos e corridas. Rotina e configuracoes ficam intactas</p>
                   </div>
                   <ChevronRight size={16} className="text-muted-foreground" />
                 </CardContent>
@@ -424,11 +421,12 @@ export default function ConfiguracoesPage() {
                 <CardContent className="p-4 space-y-3">
                   <p className="font-bold text-center text-red-400">Tem certeza?</p>
                   <p className="text-muted-foreground text-sm text-center">
-                    Isso vai apagar <strong>TODOS</strong> os seus treinos e corridas. Faca um backup antes!
+                    Isso vai apagar todo o seu <strong>historico de treinos e corridas</strong>.
+                    Sua rotina, exercicios e configuracoes serao preservados.
                   </p>
                   <div className="flex gap-2">
                     <Button variant="destructive" onClick={handleClear} className="flex-1">
-                      Sim, apagar tudo
+                      Sim, limpar historico
                     </Button>
                     <Button variant="ghost" onClick={() => setShowClearConfirm(false)} className="flex-1">
                       Cancelar
@@ -454,14 +452,14 @@ export default function ConfiguracoesPage() {
                 <p className="text-muted-foreground text-sm">Seu companheiro de treino</p>
               </div>
               <div className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
-                <span>Versao 1.0.0</span>
+                <span className="px-2 py-0.5 rounded-full bg-muted text-muted-foreground font-mono text-[10px]">v1.0.0</span>
                 <span>•</span>
                 <span>Feito com</span>
                 <Heart size={12} className="text-primary fill-primary" />
               </div>
               <div className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground pt-1">
                 <Shield size={12} className="text-emerald-400" />
-                <span>100% privado • sem conta • sem servidor</span>
+                <span>100% privado - sem conta - sem servidor</span>
               </div>
             </CardContent>
           </Card>

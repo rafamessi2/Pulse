@@ -48,6 +48,17 @@ class PulseDatabase extends Dexie {
       workoutDraft: 'id',
       weightEntries: '++id, date',
     });
+
+    // Versao 4: adiciona campo 'origem' nas sessoes para distinguir treino_rotina vs cardio_avulso
+    this.version(4).stores({
+      workoutTemplates: '++id, letter, name, createdAt',
+      workoutSessions: '++id, templateId, templateLetter, date, startTime, origem',
+      cardioTemplates: '++id, type, name, createdAt',
+      cardioSessions: '++id, templateId, type, date, origem',
+      settings: '++id',
+      workoutDraft: 'id',
+      weightEntries: '++id, date',
+    });
   }
 }
 
@@ -422,7 +433,7 @@ export async function getPersonalRecords(): Promise<Record<string, { weight: num
   return records;
 }
 
-export async function getWeeklyStats(weekStart: Date): Promise<{ workouts: number; cardios: number; volume: number; km: number }> {
+export async function getWeeklyStats(weekStart: Date): Promise<{ workouts: number; workoutsRotina: number; cardios: number; volume: number; km: number }> {
   const weekEnd = new Date(weekStart);
   weekEnd.setDate(weekEnd.getDate() + 7);
 
@@ -431,12 +442,19 @@ export async function getWeeklyStats(weekStart: Date): Promise<{ workouts: numbe
     db.cardioSessions.where('date').between(weekStart, weekEnd).toArray(),
   ]);
 
+  // workoutsRotina: treinos finalizados via aba Treino (forca + cardio de rotina)
+  // Registros antigos (sem origem) sao tratados como treino_rotina por retrocompatibilidade
+  const workoutsRotina =
+    workouts.filter((s) => !s.origem || s.origem === 'treino_rotina').length +
+    cardios.filter((s) => s.origem === 'treino_rotina').length;
+
   const volume = workouts.reduce((acc, s) => acc + (s.totalVolume ?? 0), 0);
   const km = cardios.reduce((acc, s) => acc + s.distance, 0);
 
   return {
     workouts: workouts.length,
-    cardios: cardios.length,
+    workoutsRotina,
+    cardios: cardios.filter((s) => !s.origem || s.origem === 'cardio_avulso').length,
     volume,
     km,
   };
@@ -499,17 +517,14 @@ export async function importAllData(backup: ReturnType<typeof exportAllData> ext
 }
 
 export async function clearAllData() {
-  await db.transaction('rw', [db.workoutTemplates, db.workoutSessions, db.cardioTemplates, db.cardioSessions, db.settings, db.weightEntries], async () => {
+  // Limpa apenas o historico de atividades -- templates, configuracoes e peso sao preservados
+  await db.transaction('rw', [db.workoutSessions, db.cardioSessions, db.weightEntries], async () => {
     await Promise.all([
-      db.workoutTemplates.clear(),
       db.workoutSessions.clear(),
-      db.cardioTemplates.clear(),
       db.cardioSessions.clear(),
-      db.settings.clear(),
       db.weightEntries.clear(),
     ]);
   });
-  await seedDefaultData();
 }
 
 // Modo Treinador: exportar/importar apenas a rotina de treinos

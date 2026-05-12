@@ -8,10 +8,13 @@ import { db } from '@/lib/db';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { formatDate, formatDuration, formatPace, formatVolume, getCardioTypeLabel } from '@/lib/utils';
-import { format, startOfMonth, endOfMonth, eachWeekOfInterval, startOfWeek, endOfWeek } from 'date-fns';
+import { format, startOfMonth, endOfMonth } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
 type Filter = 'todos' | 'treino' | 'cardio';
+
+const stripPrefix = (name: string) =>
+  name.replace(/^Treino [A-Za-z]+ [-–] /, '').replace(/^Treino [A-Za-z]+ - /, '');
 
 export default function HistoricoPage() {
   const [filter, setFilter] = useState<Filter>('todos');
@@ -90,7 +93,7 @@ export default function HistoricoPage() {
                     <Dumbbell size={18} className="text-white" />
                   </div>
                   <div>
-                    <p className="text-xl font-bold">{monthWorkouts.length}</p>
+                    <p className="text-xl font-bold gradient-text">{monthWorkouts.length}</p>
                     <p className="text-muted-foreground text-xs">Treinos • {formatVolume(monthVolume)}</p>
                   </div>
                 </div>
@@ -103,7 +106,7 @@ export default function HistoricoPage() {
                     <Activity size={18} className="text-secondary" />
                   </div>
                   <div>
-                    <p className="text-xl font-bold">{monthCardios.length}</p>
+                    <p className="text-xl font-bold gradient-text">{monthCardios.length}</p>
                     <p className="text-muted-foreground text-xs">Corridas • {monthKm.toFixed(1)} km</p>
                   </div>
                 </div>
@@ -145,16 +148,25 @@ export default function HistoricoPage() {
         )}
 
         {/* Filter tabs */}
-        <div className="flex gap-2">
-          {(['todos', 'treino', 'cardio'] as Filter[]).map((f) => (
+        <div className="flex gap-2 p-1 rounded-2xl bg-muted/40 border border-border/20">
+          {([ 
+            { key: 'todos', label: 'Todos', count: allItems.length },
+            { key: 'treino', label: '🏋️ Treino', count: workouts?.length ?? 0 },
+            { key: 'cardio', label: '🏃 Cardio', count: cardios?.length ?? 0 },
+          ] as { key: Filter; label: string; count: number }[]).map(({ key, label, count }) => (
             <button
-              key={f}
-              onClick={() => setFilter(f)}
-              className={`flex-1 h-9 rounded-xl text-sm font-medium transition-all ${
-                filter === f ? 'gradient-bg text-white' : 'bg-muted text-muted-foreground'
+              key={key}
+              onClick={() => setFilter(key)}
+              className={`flex-1 h-9 rounded-xl text-xs font-semibold transition-all flex items-center justify-center gap-1.5 ${
+                filter === key
+                  ? 'gradient-bg text-white shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
               }`}
             >
-              {f === 'todos' ? 'Todos' : f === 'treino' ? '🏋️ Treino' : '🏃 Cardio'}
+              {label}
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                filter === key ? 'bg-white/20' : 'bg-muted text-muted-foreground'
+              }`}>{count}</span>
             </button>
           ))}
         </div>
@@ -203,7 +215,7 @@ export default function HistoricoPage() {
                             <div>
                               <p className="font-semibold text-sm">
                                 {item.type === 'workout'
-                                  ? (item.data as any).templateName
+                                  ? stripPrefix((item.data as any).templateName ?? '')
                                   : ((item.data as any).templateName ?? getCardioTypeLabel((item.data as any).type))
                                 }
                               </p>
@@ -238,9 +250,9 @@ export default function HistoricoPage() {
                                   { label: 'Exercícios', value: `${(item.data as any).completedExercises}/${(item.data as any).totalExercises}` },
                                   { label: 'Volume', value: formatVolume((item.data as any).totalVolume ?? 0) },
                                 ].map((s) => (
-                                  <div key={s.label} className="bg-muted/40 rounded-xl p-2">
+                                  <div key={s.label} className="bg-muted/40 rounded-xl p-3 flex flex-col items-center gap-1">
                                     <p className="font-bold text-sm gradient-text">{s.value}</p>
-                                    <p className="text-muted-foreground text-[10px]">{s.label}</p>
+                                    <p className="text-muted-foreground text-[10px] font-medium">{s.label}</p>
                                   </div>
                                 ))}
                               </div>
@@ -266,9 +278,9 @@ export default function HistoricoPage() {
                                   { label: 'Pace', value: formatPace((item.data as any).avgPaceMin, (item.data as any).avgPaceSec) },
                                   { label: 'Duração', value: formatDuration((item.data as any).durationMinutes) },
                                 ].map((s) => (
-                                  <div key={s.label} className="bg-muted/40 rounded-xl p-2">
+                                  <div key={s.label} className="bg-muted/40 rounded-xl p-3 flex flex-col items-center gap-1">
                                     <p className="font-bold text-sm gradient-text">{s.value}</p>
-                                    <p className="text-muted-foreground text-[10px]">{s.label}</p>
+                                    <p className="text-muted-foreground text-[10px] font-medium">{s.label}</p>
                                   </div>
                                 ))}
                               </div>

@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import * as ToastPrimitives from '@radix-ui/react-toast';
-import { X } from 'lucide-react';
+import { X, CheckCircle2, AlertCircle, Info } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const ToastProvider = ToastPrimitives.Provider;
@@ -108,9 +108,19 @@ export function Toaster() {
       <ToastProvider>
         {toasts.map((t) => (
           <Toast key={t.id} variant={t.variant}>
-            <div>
-              <ToastTitle>{t.title}</ToastTitle>
-              {t.description && <ToastDescription>{t.description}</ToastDescription>}
+            <div className="flex items-start gap-3 flex-1">
+              <div className="shrink-0 mt-0.5">
+                {t.variant === 'success' && <CheckCircle2 size={17} className="text-emerald-400" />}
+                {t.variant === 'error' && <AlertCircle size={17} className="text-red-400" />}
+                {(!t.variant || t.variant === 'default') && <Info size={17} className="text-primary" />}
+              </div>
+              <div>
+                <ToastTitle className={
+                  t.variant === 'success' ? 'text-emerald-400' :
+                  t.variant === 'error' ? 'text-red-400' : ''
+                }>{t.title}</ToastTitle>
+                {t.description && <ToastDescription>{t.description}</ToastDescription>}
+              </div>
             </div>
             <ToastClose />
           </Toast>

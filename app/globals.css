@@ -122,6 +122,26 @@
   .pt-safe-lg {
     padding-top: calc(env(safe-area-inset-top, 0px) + 3.5rem);
   }
+
+  /* Altura h-13 não existe no Tailwind base */
+  .h-13 {
+    height: 3.25rem;
+  }
+
+  /* Scrollbar oculta mas funcional */
+  .scrollbar-none {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Divisor sutil */
+  .divider {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, hsl(var(--border)), transparent);
+  }
 }
 
 /* Loading skeleton animation */
@@ -143,6 +163,12 @@
     transparent 100%
   );
   animation: shimmer 2s infinite;
+}
+
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
 }
 
 /* Range input styling */
@@ -180,4 +206,34 @@ input[type='number']::-webkit-outer-spin-button {
 input[type='number'] {
   -moz-appearance: textfield;
   appearance: textfield;
+}
+
+/* Better mobile tap targets */
+.tap-target {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+/* Prevent double-tap zoom on buttons */
+button, a {
+  touch-action: manipulation;
+}
+
+/* Smooth momentum scrolling on iOS */
+.scroll-smooth-ios {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Focus ring for accessibility */
+.focus-ring:focus-visible {
+  outline: 2px solid hsl(var(--primary));
+  outline-offset: 2px;
+}
+
+/* Subtle press animation for interactive cards */
+.press-scale {
+  transition: transform 0.12s ease;
+}
+.press-scale:active {
+  transform: scale(0.97);
 }

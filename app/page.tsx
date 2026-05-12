@@ -231,7 +231,7 @@ export default function DashboardPage() {
   );
   const templates = useLiveQuery(() => db.workoutTemplates.orderBy('letter').toArray());
 
-  const [weekStats, setWeekStats] = useState({ workouts: 0, cardios: 0, volume: 0, km: 0 });
+  const [weekStats, setWeekStats] = useState({ workouts: 0, workoutsRotina: 0, cardios: 0, volume: 0, km: 0 });
   const [bestPace, setBestPace] = useState<{ paceMin: number; paceSec: number; date: Date } | null>(null);
   const [prCount, setPrCount] = useState(0);
   const [latestWeight, setLatestWeight] = useState<WeightEntry | undefined>(undefined);
@@ -254,7 +254,8 @@ export default function DashboardPage() {
     refreshWeight();
   }, [recentWorkouts, recentCardios]);
 
-  const totalActivities = weekStats.workouts;
+  // Conta apenas treinos feitos via aba Treino (rotina), excluindo cardios avulsos
+  const totalActivities = weekStats.workoutsRotina;
   const progress = Math.min((totalActivities / WEEK_GOAL) * 100, 100);
 
   const lastWorkout = recentWorkouts?.[0];
@@ -324,17 +325,35 @@ export default function DashboardPage() {
             <div>
               <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Semana Atual</p>
               <p className="text-lg font-bold mt-0.5">
-                {totalActivities}{' '}
+                <span className="gradient-text">{totalActivities}</span>
+                {' '}
                 <span className="text-muted-foreground font-normal text-sm">de {WEEK_GOAL} treinos</span>
               </p>
             </div>
-            <div className="text-2xl font-bold gradient-text">{Math.round(progress)}%</div>
+            <div className="flex flex-col items-end gap-1">
+              <div className="text-2xl font-bold gradient-text">{Math.round(progress)}%</div>
+              {totalActivities >= WEEK_GOAL && (
+                <span className="text-[10px] font-semibold text-emerald-400 bg-emerald-500/15 px-2 py-0.5 rounded-full">
+                  ✓ Meta atingida!
+                </span>
+              )}
+            </div>
           </div>
-          <Progress value={progress} className="h-2.5" />
-          <div className="flex gap-4 mt-3 text-xs text-muted-foreground">
-            <span>🏋️ {weekStats.workouts} treinos</span>
-            <span>🏃 {weekStats.cardios} corridas</span>
-            <span>📏 {weekStats.km.toFixed(1)} km</span>
+          {/* Dots + barra */}
+          <div className="flex gap-1.5 mb-2.5">
+            {Array.from({ length: WEEK_GOAL }).map((_, i) => (
+              <div
+                key={i}
+                className={`flex-1 h-1.5 rounded-full transition-all duration-500 ${
+                  i < totalActivities ? 'gradient-bg' : 'bg-muted'
+                }`}
+              />
+            ))}
+          </div>
+          <div className="flex gap-3 text-xs text-muted-foreground flex-wrap">
+            <span className="flex items-center gap-1">🏋️ <span className="text-foreground font-medium">{weekStats.workoutsRotina}</span> treinos</span>
+            <span className="flex items-center gap-1">🏃 <span className="text-foreground font-medium">{weekStats.cardios}</span> corridas</span>
+            <span className="flex items-center gap-1">📏 <span className="text-foreground font-medium">{weekStats.km.toFixed(1)}</span> km</span>
           </div>
         </motion.div>
       </div>
@@ -343,11 +362,13 @@ export default function DashboardPage() {
         {/* Quick Actions */}
         <motion.div custom={2} initial="hidden" animate="show" variants={fadeUp} className="grid grid-cols-2 gap-3">
           <Link href="/treino">
-            <div className="relative overflow-hidden rounded-2xl p-4 gradient-bg card-glow-active">
+            <div className="relative overflow-hidden rounded-2xl p-4 gradient-bg card-glow-active active:scale-[0.97] transition-transform duration-100">
               <div className="absolute -right-4 -bottom-4 opacity-20">
                 <Dumbbell size={64} />
               </div>
-              <Dumbbell size={24} className="text-white mb-3" />
+              <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center mb-3">
+                <Dumbbell size={20} className="text-white" />
+              </div>
               <p className="text-white font-bold text-base">Iniciar Treino</p>
               <p className="text-white/70 text-xs mt-0.5">
                 {nextTemplate ? `Próximo: ${nextTemplate.letter}` : 'Selecionar treino'}
@@ -355,11 +376,13 @@ export default function DashboardPage() {
             </div>
           </Link>
           <Link href="/cardio">
-            <div className="relative overflow-hidden rounded-2xl p-4 bg-card border border-secondary/30 card-glow">
+            <div className="relative overflow-hidden rounded-2xl p-4 bg-card border border-secondary/30 hover:border-secondary/50 transition-all active:scale-[0.97]" style={{ boxShadow: '0 0 0 1px rgba(168,85,247,0.12), 0 4px 24px rgba(0,0,0,0.4)' }}>
               <div className="absolute -right-4 -bottom-4 opacity-10">
                 <Activity size={64} />
               </div>
-              <Activity size={24} className="text-secondary mb-3" />
+              <div className="w-9 h-9 rounded-xl bg-secondary/20 flex items-center justify-center mb-3">
+                <Activity size={20} className="text-secondary" />
+              </div>
               <p className="font-bold text-base">Registrar Cardio</p>
               <p className="text-muted-foreground text-xs mt-0.5">Corrida, caminhada…</p>
             </div>

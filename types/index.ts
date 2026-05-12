@@ -67,6 +67,8 @@ export interface WorkoutSession {
   totalExercises: number;
   notes?: string;
   rating?: number;
+  /** Origem do registro: 'treino_rotina' = via aba Treino, 'cardio_avulso' = via aba Cardio */
+  origem?: 'treino_rotina' | 'cardio_avulso';
 }
 
 // Cardio / Corrida
@@ -100,6 +102,8 @@ export interface CardioSession {
   perceivedEffort: number;
   notes?: string;
   calories?: number;
+  /** Origem do registro: 'treino_rotina' = via aba Treino, 'cardio_avulso' = via aba Cardio */
+  origem?: 'treino_rotina' | 'cardio_avulso';
 }
 
 // Stats

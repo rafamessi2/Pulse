@@ -60,7 +60,7 @@ export default function CardioPage() {
         <div className="grid grid-cols-3 gap-3">
           {[
             { icon: <MapPin size={16} className="text-purple-400" />, label: 'Total KM', value: `${totalKm.toFixed(1)} km` },
-            { icon: <Activity size={16} className="text-pink-400" />, label: 'Corridas', value: totalSessions },
+            { icon: <Activity size={16} className="text-pink-400" />, label: 'Corridas', value: String(totalSessions) },
             { icon: <Trophy size={16} className="text-yellow-400" />, label: 'Melhor Pace', value: bestPaceSession ? formatPace(bestPaceSession.avgPaceMin, bestPaceSession.avgPaceSec) : '--' },
           ].map((stat, i) => (
             <motion.div
@@ -72,8 +72,8 @@ export default function CardioPage() {
               <Card className="glass border-border/30">
                 <CardContent className="p-3 text-center">
                   <div className="flex justify-center mb-1.5">{stat.icon}</div>
-                  <p className="font-bold text-sm">{stat.value}</p>
-                  <p className="text-muted-foreground text-[10px]">{stat.label}</p>
+                  <p className="font-bold text-sm gradient-text">{stat.value}</p>
+                  <p className="text-muted-foreground text-[10px] font-medium">{stat.label}</p>
                 </CardContent>
               </Card>
             </motion.div>
@@ -121,7 +121,9 @@ export default function CardioPage() {
             >
               <Card className="glass border-dashed border-primary/30 hover:border-primary/50 transition-all active:scale-[0.97] h-full">
                 <CardContent className="p-4 flex flex-col items-center justify-center min-h-[100px] text-center">
-                  <Plus size={24} className="text-primary mb-2" />
+                  <div className="w-10 h-10 rounded-2xl gradient-bg-soft border border-primary/30 flex items-center justify-center mb-2">
+                    <Plus size={20} className="text-primary" />
+                  </div>
                   <p className="font-semibold text-sm text-primary">Registrar Livre</p>
                   <p className="text-muted-foreground text-xs mt-0.5">Sem template</p>
                 </CardContent>
@@ -159,10 +161,11 @@ export default function CardioPage() {
                       </div>
                       <div className="flex gap-4 text-xs text-muted-foreground">
                         <span className="flex items-center gap-1">
-                          <Timer size={10} /> {formatDuration(s.durationMinutes + Math.round(s.durationSeconds / 60))}
+                          <Timer size={10} /> {formatDuration(s.durationMinutes)}
                         </span>
                         <span className="flex items-center gap-1">
-                          <Flame size={10} className="text-orange-400" /> Esforço {s.perceivedEffort}/10
+                          <Flame size={10} className="text-orange-400" />
+                          <span>Esforço <span className="text-foreground font-medium">{s.perceivedEffort}</span>/10</span>
                         </span>
                         {s.avgHeartRate && <span>❤️ {s.avgHeartRate} bpm</span>}
                       </div>

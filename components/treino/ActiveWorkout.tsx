@@ -18,8 +18,10 @@ import {
   AlertTriangle,
   RotateCcw,
   Footprints,
+  Activity,
+  Flame,
 } from 'lucide-react';
-import { db, getLastWorkoutSession, clearDraft } from '@/lib/db';
+import { db, getLastWorkoutSession } from '@/lib/db';
 import { useWorkoutDraft } from '@/hooks/useWorkoutDraft';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -27,14 +29,37 @@ import { Textarea } from '@/components/ui/textarea';
 import { Progress } from '@/components/ui/progress';
 import { Card, CardContent } from '@/components/ui/card';
 import { useToast } from '@/components/ui/toaster';
-import type { WorkoutTemplate, ExerciseLog, SetLog, WorkoutDraft } from '@/types';
-import { formatDuration } from '@/lib/utils';
+import { calcPace, formatDuration } from '@/lib/utils';
+import type { WorkoutTemplate, ExerciseLog, WorkoutDraft, CardioType } from '@/types';
 
 interface Props {
   template: WorkoutTemplate;
   draft?: WorkoutDraft;
   onClose: () => void;
 }
+
+// Per-exercise cardio form state (lives outside exerciseLogs to avoid type conflicts)
+interface CardioFormState {
+  distance: string;
+  durationMinutes: string;
+  durationSeconds: string;
+  avgHeartRate: string;
+  perceivedEffort: number;
+  notes: string;
+  done: boolean;
+}
+
+const emptyCardioForm = (): CardioFormState => ({
+  distance: '',
+  durationMinutes: '',
+  durationSeconds: '0',
+  avgHeartRate: '',
+  perceivedEffort: 6,
+  notes: '',
+  done: false,
+});
+
+const EFFORT_LABELS = ['', 'Muito facil', 'Facil', 'Moderado', 'Moderado+', 'Medio', 'Dificil', 'Muito dificil', 'Extremo', 'Maximo', 'Tudo'];
 
 export function WorkoutSession({ template, draft, onClose }: Props) {
   const { toast } = useToast();
@@ -88,6 +113,7 @@ export function WorkoutSession({ template, draft, onClose }: Props) {
 
   useEffect(() => () => { if (restIntervalRef.current) clearInterval(restIntervalRef.current); }, []);
 
+  // Forca exercise logs
   const [exerciseLogs, setExerciseLogs] = useState<ExerciseLog[]>(() => {
     if (draft) return draft.exerciseLogs;
     return template.exercises.map((ex) => {
@@ -101,15 +127,7 @@ export function WorkoutSession({ template, draft, onClose }: Props) {
         tempoMinutos: ex.tempoMinutos,
         ritmoEsforco: ex.ritmoEsforco,
         sets: isCardio
-          ? [{
-              setNumber: 1,
-              targetReps: ex.tempoMinutos ?? '-',
-              completedReps: null,
-              weight: null,
-              completed: false,
-              tempoRealizado: null,
-              distanciaKm: null,
-            }]
+          ? [{ setNumber: 1, targetReps: '-', completedReps: null, weight: null, completed: false }]
           : Array.from({ length: ex.sets }, (_, i) => ({
               setNumber: i + 1,
               targetReps: ex.reps,
@@ -121,6 +139,40 @@ export function WorkoutSession({ template, draft, onClose }: Props) {
       };
     });
   });
+
+  // Cardio form states keyed by exercise index
+  const [cardioForms, setCardioForms] = useState<Record<number, CardioFormState>>(() => {
+    const init: Record<number, CardioFormState> = {};
+    template.exercises.forEach((ex, i) => {
+      if (ex.modalidade === 'cardio') init[i] = emptyCardioForm();
+    });
+    return init;
+  });
+
+  const updateCardioForm = (exIdx: number, key: keyof CardioFormState, value: string | number | boolean) => {
+    setCardioForms((prev) => ({
+      ...prev,
+      [exIdx]: { ...prev[exIdx], [key]: value },
+    }));
+  };
+
+  const toggleCardioDone = (exIdx: number) => {
+    const cf = cardioForms[exIdx];
+    const nowDone = !cf.done;
+    setCardioForms((prev) => ({ ...prev, [exIdx]: { ...prev[exIdx], done: nowDone } }));
+    // Mark the single set as completed in exerciseLogs too (for progress bar)
+    setExerciseLogs((prev) =>
+      prev.map((ex, ei) =>
+        ei !== exIdx ? ex : {
+          ...ex,
+          sets: [{ ...ex.sets[0], completed: nowDone }],
+        }
+      )
+    );
+    if (nowDone && exIdx + 1 < exerciseLogs.length) {
+      setExpandedExercise(exIdx + 1);
+    }
+  };
 
   const [previousData, setPreviousData] = useState<Record<string, { weight: number; reps: number }>>({});
   const [expandedExercise, setExpandedExercise] = useState<number>(0);
@@ -143,7 +195,6 @@ export function WorkoutSession({ template, draft, onClose }: Props) {
         }
       }
       setPreviousData(map);
-
       if (!draft) {
         setExerciseLogs((prev) =>
           prev.map((log) => {
@@ -181,9 +232,7 @@ export function WorkoutSession({ template, draft, onClose }: Props) {
   }, [exerciseLogs]);
 
   useEffect(() => {
-    const id = setInterval(() => {
-      triggerSave(buildDraftPayload());
-    }, 30_000);
+    const id = setInterval(() => triggerSave(buildDraftPayload()), 30_000);
     return () => clearInterval(id);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [buildDraftPayload]);
@@ -196,17 +245,6 @@ export function WorkoutSession({ template, draft, onClose }: Props) {
           sets: ex.sets.map((s, si) =>
             si !== setIdx ? s : { ...s, [field]: value }
           ),
-        }
-      )
-    );
-  };
-
-  const updateCardioSet = (exIdx: number, field: 'tempoRealizado' | 'distanciaKm', value: number | null) => {
-    setExerciseLogs((prev) =>
-      prev.map((ex, ei) =>
-        ei !== exIdx ? ex : {
-          ...ex,
-          sets: [{ ...ex.sets[0], [field]: value }],
         }
       )
     );
@@ -225,13 +263,9 @@ export function WorkoutSession({ template, draft, onClose }: Props) {
       )
     );
     if (newCompleted) {
-      const isCardio = exerciseLogs[exIdx].modalidade === 'cardio';
-      if (!isCardio) {
-        const restSecs = template.exercises[exIdx]?.restSeconds ?? 60;
-        startRest(restSecs);
-      }
-      const nextSetIdx = setIdx + 1;
-      if (nextSetIdx >= exerciseLogs[exIdx].sets.length && exIdx + 1 < exerciseLogs.length) {
+      const restSecs = template.exercises[exIdx]?.restSeconds ?? 60;
+      startRest(restSecs);
+      if (setIdx + 1 >= exerciseLogs[exIdx].sets.length && exIdx + 1 < exerciseLogs.length) {
         setExpandedExercise(exIdx + 1);
       }
     }
@@ -247,35 +281,75 @@ export function WorkoutSession({ template, draft, onClose }: Props) {
       await flushSave();
       const endTime = new Date();
       const durationMinutes = Math.round((endTime.getTime() - startTimeRef.current.getTime()) / 60000);
-      const totalVolume = exerciseLogs.reduce(
-        (acc, ex) => acc + ex.sets.reduce(
-          (s, set) => s + (set.completed && set.weight && set.completedReps ? set.weight * set.completedReps : 0), 0
-        ), 0
-      );
       const snapshotName = liveTemplate?.name ?? template.name;
 
-      await db.workoutSessions.add({
-        templateId: template.id!,
-        templateName: snapshotName,
-        templateLetter: template.letter,
-        date: new Date(),
-        startTime: startTimeRef.current,
-        endTime,
-        durationMinutes,
-        exercises: exerciseLogs,
-        totalVolume,
-        completedExercises: exerciseLogs.filter((ex) => ex.sets.some((s) => s.completed)).length,
-        totalExercises: exerciseLogs.length,
-        notes: workoutNotes,
-      });
+      // Separate forca vs cardio exercises
+      const forcaLogs = exerciseLogs.filter((_, i) => template.exercises[i]?.modalidade !== 'cardio');
+      const cardioExercises = exerciseLogs
+        .map((log, i) => ({ log, exIdx: i, ex: template.exercises[i] }))
+        .filter(({ ex }) => ex?.modalidade === 'cardio');
+
+      // Save forca session (only if there are forca exercises)
+      if (forcaLogs.length > 0) {
+        const totalVolume = forcaLogs.reduce(
+          (acc, ex) => acc + ex.sets.reduce(
+            (s, set) => s + (set.completed && set.weight && set.completedReps ? set.weight * set.completedReps : 0), 0
+          ), 0
+        );
+        await db.workoutSessions.add({
+          templateId: template.id!,
+          templateName: snapshotName,
+          templateLetter: template.letter,
+          date: new Date(),
+          startTime: startTimeRef.current,
+          endTime,
+          durationMinutes,
+          exercises: forcaLogs,
+          totalVolume,
+          completedExercises: forcaLogs.filter((ex) => ex.sets.some((s) => s.completed)).length,
+          totalExercises: forcaLogs.length,
+          notes: workoutNotes,
+          origem: 'treino_rotina',
+        });
+      }
+
+      // Save each cardio exercise as a separate cardioSession
+      for (const { exIdx, ex } of cardioExercises) {
+        const cf = cardioForms[exIdx];
+        if (!cf) continue;
+        const distance = parseFloat(cf.distance) || 0;
+        const durMin = parseInt(cf.durationMinutes) || 0;
+        const durSec = parseInt(cf.durationSeconds) || 0;
+        const pace = distance > 0 ? calcPace(distance, durMin, durSec) : null;
+
+        await db.cardioSessions.add({
+          templateId: undefined,
+          templateName: ex?.name ?? 'Cardio',
+          type: 'leve' as CardioType,
+          date: new Date(),
+          distance,
+          durationMinutes: durMin,
+          durationSeconds: durSec,
+          avgPaceMin: pace?.min ?? 0,
+          avgPaceSec: pace?.sec ?? 0,
+          avgHeartRate: cf.avgHeartRate ? parseInt(cf.avgHeartRate) : undefined,
+          perceivedEffort: cf.perceivedEffort,
+          notes: cf.notes || undefined,
+          origem: 'treino_rotina',
+        });
+      }
 
       await discardDraft();
 
-      toast({
-        title: 'Treino salvo!',
-        description: `${durationMinutes}min • ${totalVolume.toFixed(0)}kg volume`,
-        variant: 'success',
-      });
+      const hasCardio = cardioExercises.length > 0;
+      const hasForca = forcaLogs.length > 0;
+      const desc = hasForca && hasCardio
+        ? `${durationMinutes}min - treino misto salvo`
+        : hasForca
+        ? `${durationMinutes}min - sessao de musculacao salva`
+        : `${cardioExercises.length} corrida(s) salva(s) no historico`;
+
+      toast({ title: 'Treino finalizado!', description: desc, variant: 'success' });
       onClose();
     } catch {
       toast({ title: 'Erro ao salvar treino', variant: 'error' });
@@ -303,72 +377,48 @@ export function WorkoutSession({ template, draft, onClose }: Props) {
       {/* Header */}
       <div className="sticky top-0 z-30 nav-blur px-5 pt-safe">
         <div className="flex items-center justify-between h-14">
-          <button
-            onClick={onClose}
-            className="flex items-center gap-1.5 text-muted-foreground"
-          >
+          <button onClick={onClose} className="flex items-center gap-1.5 text-muted-foreground active:opacity-60 transition-opacity">
             <ChevronLeft size={20} />
-            <span className="text-sm">Treinos</span>
+            <span className="text-sm font-medium">Treinos</span>
           </button>
-
           <div className="text-center">
-            <p className="font-bold text-sm">
-              {template.letter} &ndash; {displayTitle}
-            </p>
-            <div className="flex items-center justify-center gap-2">
-              <p className="text-primary text-xs font-mono">{elapsedStr}</p>
+            <p className="font-bold text-sm">{template.letter} · {displayTitle}</p>
+            <div className="flex items-center justify-center gap-2 mt-0.5">
+              <p className="text-primary text-xs font-mono font-semibold tabular-nums">{elapsedStr}</p>
               <AnimatePresence mode="wait">
                 {saveIndicator === 'saving' && (
-                  <motion.span
-                    key="saving"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    className="text-[9px] text-muted-foreground"
-                  >
-                    salvando...
-                  </motion.span>
+                  <motion.span key="saving" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                    className="text-[9px] text-muted-foreground">salvando...</motion.span>
                 )}
                 {saveIndicator === 'saved' && (
-                  <motion.span
-                    key="saved"
-                    initial={{ opacity: 0, scale: 0.8 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0 }}
-                    className="text-[9px] text-emerald-400"
-                  >
-                    salvo
-                  </motion.span>
+                  <motion.span key="saved" initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }}
+                    className="text-[9px] text-emerald-400">✓ salvo</motion.span>
                 )}
               </AnimatePresence>
             </div>
           </div>
-
           <button
             onClick={() => setShowFinish(true)}
-            className="text-primary text-sm font-semibold"
+            className="gradient-bg text-white text-xs font-bold px-3.5 py-2 rounded-xl active:opacity-80 transition-opacity"
           >
             Finalizar
           </button>
         </div>
-        <Progress value={progress} className="h-1 mb-2" />
-        <p className="text-xs text-center text-muted-foreground pb-2">
-          {completedSets}/{totalSets} concluidos
-        </p>
+        <div className="pb-2.5">
+          <Progress value={progress} className="h-1.5" />
+          <div className="flex items-center justify-between mt-1.5">
+            <p className="text-[10px] text-muted-foreground">{completedSets}/{totalSets} séries</p>
+            <p className="text-[10px] font-semibold text-primary">{Math.round(progress)}%</p>
+          </div>
+        </div>
       </div>
 
       {/* Banner restaurado do rascunho */}
       {draft && (
-        <motion.div
-          initial={{ height: 0, opacity: 0 }}
-          animate={{ height: 'auto', opacity: 1 }}
-          className="overflow-hidden"
-        >
+        <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} className="overflow-hidden">
           <div className="mx-5 mt-3 mb-1 rounded-xl border border-emerald-500/30 bg-emerald-500/8 px-4 py-2.5 flex items-center gap-2">
             <RotateCcw size={13} className="text-emerald-400 shrink-0" />
-            <p className="text-xs text-emerald-300">
-              Treino restaurado continuando de onde parou
-            </p>
+            <p className="text-xs text-emerald-300">Treino restaurado - continuando de onde parou</p>
           </div>
         </motion.div>
       )}
@@ -376,23 +426,23 @@ export function WorkoutSession({ template, draft, onClose }: Props) {
       {/* Timer de descanso */}
       <AnimatePresence>
         {restActive && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            className="overflow-hidden"
-          >
+          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
             <div className="gradient-bg-soft border-b border-primary/20 px-5 py-3 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Timer size={16} className="text-primary" />
-                <span className="text-sm font-medium">Descanso</span>
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl gradient-bg-soft border border-primary/30 flex items-center justify-center">
+                  <Timer size={15} className="text-primary" />
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider leading-none">Descanso</p>
+                  <p className="font-mono font-bold text-primary text-xl tabular-nums leading-tight">{restTick}s</p>
+                </div>
               </div>
-              <div className="flex items-center gap-3">
-                <span className="font-mono font-bold text-primary text-lg">{restTick}s</span>
-                <button onClick={() => { setRestActive(false); if (restIntervalRef.current) clearInterval(restIntervalRef.current); }}>
-                  <X size={16} className="text-muted-foreground" />
-                </button>
-              </div>
+              <button
+                onClick={() => { setRestActive(false); if (restIntervalRef.current) clearInterval(restIntervalRef.current); }}
+                className="flex items-center gap-1 text-xs text-muted-foreground bg-muted/50 px-3 py-1.5 rounded-xl active:opacity-60"
+              >
+                <X size={13} /> Pular
+              </button>
             </div>
           </motion.div>
         )}
@@ -406,7 +456,13 @@ export function WorkoutSession({ template, draft, onClose }: Props) {
           const allDone = exLog.sets.every((s) => s.completed);
           const someDone = exLog.sets.some((s) => s.completed);
           const prev = previousData[exLog.exerciseName];
-          const cardioSet = exLog.sets[0];
+          const cf = cardioForms[exIdx];
+
+          // Cardio pace preview
+          const cDist = cf ? parseFloat(cf.distance) || 0 : 0;
+          const cMin = cf ? parseInt(cf.durationMinutes) || 0 : 0;
+          const cSec = cf ? parseInt(cf.durationSeconds) || 0 : 0;
+          const cPace = cDist > 0 && cMin > 0 ? calcPace(cDist, cMin, cSec) : null;
 
           return (
             <Card
@@ -419,23 +475,16 @@ export function WorkoutSession({ template, draft, onClose }: Props) {
                   : 'border-border/30 glass'
               }`}
             >
-              <button
-                onClick={() => setExpandedExercise(isExpanded ? -1 : exIdx)}
-                className="w-full"
-              >
+              <button onClick={() => setExpandedExercise(isExpanded ? -1 : exIdx)} className="w-full">
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <div
-                        className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${
-                          allDone
-                            ? 'bg-emerald-500/20 text-emerald-400'
-                            : isCardio
-                            ? 'bg-orange-500/15 text-orange-400'
-                            : 'gradient-bg-soft text-primary'
-                        }`}
-                      >
-                        {allDone ? '✓' : isCardio ? <Footprints size={14} /> : exIdx + 1}
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${
+                        allDone ? 'bg-emerald-500/20 text-emerald-400'
+                          : isCardio ? 'bg-orange-500/15 text-orange-400'
+                          : 'gradient-bg-soft text-primary'
+                      }`}>
+                        {allDone ? <CheckCircle2 size={16} /> : isCardio ? <Footprints size={14} /> : exIdx + 1}
                       </div>
                       <div className="text-left">
                         <p className="font-semibold text-sm">{exLog.exerciseName}</p>
@@ -454,10 +503,7 @@ export function WorkoutSession({ template, draft, onClose }: Props) {
                           {exLog.sets.filter((s) => s.completed).length}/{exLog.sets.length}
                         </span>
                       )}
-                      {isExpanded
-                        ? <ChevronUp size={16} className="text-muted-foreground" />
-                        : <ChevronDown size={16} className="text-muted-foreground" />
-                      }
+                      {isExpanded ? <ChevronUp size={16} className="text-muted-foreground" /> : <ChevronDown size={16} className="text-muted-foreground" />}
                     </div>
                   </div>
                 </CardContent>
@@ -466,104 +512,145 @@ export function WorkoutSession({ template, draft, onClose }: Props) {
               <AnimatePresence>
                 {isExpanded && (
                   <motion.div
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: 'auto', opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    transition={{ duration: 0.2 }}
+                    initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }}
                     className="overflow-hidden"
                   >
                     <div className="px-4 pb-4 space-y-3">
-
-                      {isCardio ? (
+                      {isCardio && cf ? (
                         /* ---- CARDIO BLOCK ---- */
                         <>
                           {/* Objetivo configurado */}
                           {(exLog.tipoCardio || exLog.tempoMinutos || exLog.ritmoEsforco) && (
                             <div className="rounded-xl bg-orange-500/8 border border-orange-500/20 px-3 py-2.5 space-y-1.5">
-                              <p className="text-[10px] font-semibold text-orange-400 uppercase tracking-wider">Objetivo do Treino</p>
+                              <p className="text-[10px] font-semibold text-orange-400 uppercase tracking-wider">Objetivo</p>
                               <div className="flex flex-wrap gap-1.5">
                                 {exLog.tipoCardio && (
-                                  <span className="text-xs bg-orange-500/15 text-orange-300 px-2 py-0.5 rounded-lg font-medium">
-                                    {exLog.tipoCardio}
-                                  </span>
+                                  <span className="text-xs bg-orange-500/15 text-orange-300 px-2 py-0.5 rounded-lg font-medium">{exLog.tipoCardio}</span>
                                 )}
                                 {exLog.tempoMinutos && (
                                   <span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-lg font-medium flex items-center gap-1">
-                                    <Timer size={10} />
-                                    {exLog.tempoMinutos} min
+                                    <Timer size={10} />{exLog.tempoMinutos} min
                                   </span>
                                 )}
                                 {exLog.ritmoEsforco && (
-                                  <span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-lg font-medium">
-                                    {exLog.ritmoEsforco}
-                                  </span>
+                                  <span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-lg font-medium">{exLog.ritmoEsforco}</span>
                                 )}
                               </div>
                             </div>
                           )}
 
-                          {/* Registro do resultado */}
-                          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider px-1">
-                            Registrar resultado
-                          </p>
-                          <div className={`flex items-center gap-2 transition-opacity ${cardioSet.completed ? 'opacity-60' : ''}`}>
-                            <div className="flex-1">
-                              <label className="text-[10px] text-muted-foreground block mb-1 text-center">Tempo (min)</label>
+                          {/* Distancia + Duracao */}
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider block mb-1.5">Distancia (km)</label>
                               <Input
-                                type="number"
-                                value={cardioSet.tempoRealizado ?? ''}
-                                onChange={(e) => updateCardioSet(exIdx, 'tempoRealizado', e.target.value ? parseFloat(e.target.value) : null)}
-                                className="h-11 text-center text-base font-bold"
-                                placeholder="--"
+                                type="number" step="0.01" placeholder="5.00"
+                                value={cf.distance}
+                                onChange={(e) => updateCardioForm(exIdx, 'distance', e.target.value)}
+                                className="text-center font-bold text-lg h-14"
                               />
                             </div>
-                            <div className="flex-1">
-                              <label className="text-[10px] text-muted-foreground block mb-1 text-center">Distancia (km)</label>
-                              <Input
-                                type="number"
-                                value={cardioSet.distanciaKm ?? ''}
-                                onChange={(e) => updateCardioSet(exIdx, 'distanciaKm', e.target.value ? parseFloat(e.target.value) : null)}
-                                className="h-11 text-center text-base font-bold"
-                                placeholder="--"
-                                step="0.1"
-                              />
-                            </div>
-                            <div className="flex flex-col items-center gap-1 pt-4">
-                              <button
-                                onClick={() => toggleSet(exIdx, 0)}
-                                className={`w-11 h-11 rounded-xl flex items-center justify-center transition-all active:scale-90 ${
-                                  cardioSet.completed ? 'bg-emerald-500 shadow-md' : 'bg-muted'
-                                }`}
-                              >
-                                {cardioSet.completed
-                                  ? <CheckCircle2 size={20} className="text-white" />
-                                  : <Circle size={20} className="text-muted-foreground" />
-                                }
-                              </button>
+                            <div>
+                              <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider block mb-1.5">Duracao</label>
+                              <div className="flex gap-1 items-center">
+                                <Input
+                                  type="number" placeholder="min"
+                                  value={cf.durationMinutes}
+                                  onChange={(e) => updateCardioForm(exIdx, 'durationMinutes', e.target.value)}
+                                  className="text-center font-bold h-14 text-base"
+                                />
+                                <span className="text-muted-foreground font-bold">:</span>
+                                <Input
+                                  type="number" placeholder="s"
+                                  value={cf.durationSeconds}
+                                  onChange={(e) => updateCardioForm(exIdx, 'durationSeconds', e.target.value)}
+                                  className="text-center font-bold h-14 text-base w-14"
+                                />
+                              </div>
                             </div>
                           </div>
 
-                          <Textarea
-                            placeholder="Observacoes (como foi a corrida, condicoes, etc.)..."
-                            value={exLog.notes ?? ''}
-                            onChange={(e) =>
-                              setExerciseLogs((prev) =>
-                                prev.map((ex, i) =>
-                                  i === exIdx ? { ...ex, notes: e.target.value } : ex
-                                )
-                              )
-                            }
-                            className="text-xs mt-1"
-                            rows={2}
-                          />
+                          {/* Pace calculado */}
+                          {cPace && (
+                            <motion.div
+                              initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
+                              className="rounded-2xl gradient-bg-soft border border-primary/20 p-3 text-center"
+                            >
+                              <p className="text-muted-foreground text-[10px] mb-0.5">Pace Medio Calculado</p>
+                              <p className="text-2xl font-bold gradient-text">
+                                {cPace.min}:{String(cPace.sec).padStart(2, '0')}<span className="text-sm text-muted-foreground font-normal">/km</span>
+                              </p>
+                            </motion.div>
+                          )}
+
+                          {/* FC Media */}
+                          <div>
+                            <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider block mb-1.5">FC Media (opcional)</label>
+                            <Input
+                              type="number" placeholder="150 bpm"
+                              value={cf.avgHeartRate}
+                              onChange={(e) => updateCardioForm(exIdx, 'avgHeartRate', e.target.value)}
+                              className="h-11"
+                            />
+                          </div>
+
+                          {/* Esforco Percebido */}
+                          <div>
+                            <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider block mb-1">
+                              Esforco Percebido <span className="gradient-text normal-case">{cf.perceivedEffort}/10</span>
+                            </label>
+                            <p className="text-xs text-center mb-2 text-muted-foreground">{EFFORT_LABELS[cf.perceivedEffort]}</p>
+                            <div className="flex gap-1">
+                              {Array.from({ length: 10 }, (_, i) => i + 1).map((v) => (
+                                <button
+                                  key={v}
+                                  onClick={() => updateCardioForm(exIdx, 'perceivedEffort', v)}
+                                  className={`flex-1 h-10 rounded-lg text-xs font-bold transition-all active:scale-90 ${
+                                    v === cf.perceivedEffort
+                                      ? 'gradient-bg text-white scale-105 shadow-md'
+                                      : v < cf.perceivedEffort
+                                      ? 'gradient-bg text-white opacity-60'
+                                      : 'bg-muted text-muted-foreground'
+                                  }`}
+                                >
+                                  {v}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Observacoes */}
+                          <div>
+                            <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider block mb-1.5">Observacoes</label>
+                            <Textarea
+                              placeholder="Como foi? Condicoes, sensacoes..."
+                              value={cf.notes}
+                              onChange={(e) => updateCardioForm(exIdx, 'notes', e.target.value)}
+                              rows={2}
+                              className="text-xs"
+                            />
+                          </div>
+
+                          {/* Botao concluir */}
+                          <button
+                            onClick={() => toggleCardioDone(exIdx)}
+                            className={`w-full h-11 rounded-xl flex items-center justify-center gap-2 text-sm font-semibold transition-all active:scale-[0.98] ${
+                              cf.done
+                                ? 'bg-emerald-500/20 border border-emerald-500/40 text-emerald-400'
+                                : 'gradient-bg text-white'
+                            }`}
+                          >
+                            {cf.done ? <><CheckCircle2 size={18} /> Concluido</> : <><Activity size={16} /> Marcar como Concluido</>}
+                          </button>
                         </>
                       ) : (
                         /* ---- MUSCULACAO BLOCK ---- */
                         <>
                           {prev && (
-                            <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/30 rounded-xl px-3 py-2">
-                              <TrendingUp size={12} className="text-emerald-400" />
-                              <span>Ultimo: {prev.weight}kg x {prev.reps}rep</span>
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground bg-emerald-500/8 border border-emerald-500/20 rounded-xl px-3 py-2.5">
+                              <TrendingUp size={12} className="text-emerald-400 shrink-0" />
+                              <span>Última vez: <span className="text-emerald-400 font-semibold">{prev.weight}kg × {prev.reps}rep</span></span>
                             </div>
                           )}
 
@@ -577,54 +664,40 @@ export function WorkoutSession({ template, draft, onClose }: Props) {
                           {exLog.sets.map((set, setIdx) => (
                             <div
                               key={setIdx}
-                              className={`grid grid-cols-[32px_1fr_1fr_40px] gap-2 items-center transition-opacity ${
-                                set.completed ? 'opacity-60' : ''
-                              }`}
+                              className={`grid grid-cols-[32px_1fr_1fr_40px] gap-2 items-center transition-opacity ${set.completed ? 'opacity-60' : ''}`}
                             >
-                              <span className="text-sm font-bold text-center text-muted-foreground">
-                                {set.setNumber}
-                              </span>
+                              <span className="text-sm font-bold text-center text-muted-foreground">{set.setNumber}</span>
 
                               <div className="flex items-center gap-1">
-                                <button
-                                  onClick={() => updateSet(exIdx, setIdx, 'weight', Math.max(0, (set.weight ?? 0) - 2.5))}
-                                  className="w-7 h-7 rounded-lg bg-muted flex items-center justify-center active:scale-90"
-                                >
+                                <button onClick={() => updateSet(exIdx, setIdx, 'weight', Math.max(0, (set.weight ?? 0) - 2.5))}
+                                  className="w-7 h-7 rounded-lg bg-muted flex items-center justify-center active:scale-90">
                                   <Minus size={12} />
                                 </button>
                                 <Input
                                   type="number"
                                   value={set.weight ?? ''}
                                   onChange={(e) => updateSet(exIdx, setIdx, 'weight', e.target.value ? parseFloat(e.target.value) : null)}
-                                  className="h-9 text-center text-sm px-1 font-semibold"
-                                  placeholder="0"
+                                  className="h-9 text-center text-sm px-1 font-semibold" placeholder="0"
                                 />
-                                <button
-                                  onClick={() => updateSet(exIdx, setIdx, 'weight', (set.weight ?? 0) + 2.5)}
-                                  className="w-7 h-7 rounded-lg bg-muted flex items-center justify-center active:scale-90"
-                                >
+                                <button onClick={() => updateSet(exIdx, setIdx, 'weight', (set.weight ?? 0) + 2.5)}
+                                  className="w-7 h-7 rounded-lg bg-muted flex items-center justify-center active:scale-90">
                                   <Plus size={12} />
                                 </button>
                               </div>
 
                               <div className="flex items-center gap-1">
-                                <button
-                                  onClick={() => updateSet(exIdx, setIdx, 'completedReps', Math.max(0, (set.completedReps ?? 0) - 1))}
-                                  className="w-7 h-7 rounded-lg bg-muted flex items-center justify-center active:scale-90"
-                                >
+                                <button onClick={() => updateSet(exIdx, setIdx, 'completedReps', Math.max(0, (set.completedReps ?? 0) - 1))}
+                                  className="w-7 h-7 rounded-lg bg-muted flex items-center justify-center active:scale-90">
                                   <Minus size={12} />
                                 </button>
                                 <Input
                                   type="number"
                                   value={set.completedReps ?? ''}
                                   onChange={(e) => updateSet(exIdx, setIdx, 'completedReps', e.target.value ? parseInt(e.target.value) : null)}
-                                  className="h-9 text-center text-sm px-1 font-semibold"
-                                  placeholder={set.targetReps}
+                                  className="h-9 text-center text-sm px-1 font-semibold" placeholder={set.targetReps}
                                 />
-                                <button
-                                  onClick={() => updateSet(exIdx, setIdx, 'completedReps', (set.completedReps ?? 0) + 1)}
-                                  className="w-7 h-7 rounded-lg bg-muted flex items-center justify-center active:scale-90"
-                                >
+                                <button onClick={() => updateSet(exIdx, setIdx, 'completedReps', (set.completedReps ?? 0) + 1)}
+                                  className="w-7 h-7 rounded-lg bg-muted flex items-center justify-center active:scale-90">
                                   <Plus size={12} />
                                 </button>
                               </div>
@@ -635,10 +708,7 @@ export function WorkoutSession({ template, draft, onClose }: Props) {
                                   set.completed ? 'gradient-bg shadow-md' : 'bg-muted'
                                 }`}
                               >
-                                {set.completed
-                                  ? <CheckCircle2 size={18} className="text-white" />
-                                  : <Circle size={18} className="text-muted-foreground" />
-                                }
+                                {set.completed ? <CheckCircle2 size={18} className="text-white" /> : <Circle size={18} className="text-muted-foreground" />}
                               </button>
                             </div>
                           ))}
@@ -648,13 +718,10 @@ export function WorkoutSession({ template, draft, onClose }: Props) {
                             value={exLog.notes ?? ''}
                             onChange={(e) =>
                               setExerciseLogs((prev) =>
-                                prev.map((ex, i) =>
-                                  i === exIdx ? { ...ex, notes: e.target.value } : ex
-                                )
+                                prev.map((ex, i) => i === exIdx ? { ...ex, notes: e.target.value } : ex)
                               )
                             }
-                            className="text-xs mt-1"
-                            rows={2}
+                            className="text-xs mt-1" rows={2}
                           />
                         </>
                       )}
@@ -670,25 +737,19 @@ export function WorkoutSession({ template, draft, onClose }: Props) {
           onClick={() => setShowCancel(true)}
           className="w-full mt-2 py-3 text-sm text-muted-foreground hover:text-red-400 transition-colors flex items-center justify-center gap-2"
         >
-          <X size={15} />
-          Cancelar treino
+          <X size={15} />Cancelar treino
         </button>
       </div>
 
       {/* Modal: Finalizar */}
       <AnimatePresence>
         {showFinish && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-end"
             onClick={() => setShowFinish(false)}
           >
             <motion.div
-              initial={{ y: '100%' }}
-              animate={{ y: 0 }}
-              exit={{ y: '100%' }}
+              initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
               transition={{ type: 'spring', stiffness: 400, damping: 40 }}
               className="w-full bg-card rounded-t-3xl p-6 border-t border-border/50"
               onClick={(e) => e.stopPropagation()}
@@ -696,21 +757,25 @@ export function WorkoutSession({ template, draft, onClose }: Props) {
               <div className="w-10 h-1 bg-muted rounded-full mx-auto mb-5" />
               <h2 className="text-xl font-bold text-center mb-1">Finalizar Treino</h2>
               <p className="text-muted-foreground text-sm text-center mb-5">
-                {completedSets}/{totalSets} concluidos &bull; {formatDuration(Math.round(elapsed / 60))}
+                {completedSets}/{totalSets} concluidos - {formatDuration(Math.round(elapsed / 60))}
               </p>
 
               <div className="grid grid-cols-3 gap-3 mb-5">
                 {[
-                  { label: 'Concluidos', value: `${completedSets}/${totalSets}` },
-                  { label: 'Duracao', value: formatDuration(Math.round(elapsed / 60)) },
+                  { label: 'Séries', value: `${completedSets}/${totalSets}` },
+                  { label: 'Duração', value: formatDuration(Math.round(elapsed / 60)) },
                   {
                     label: 'Volume',
-                    value: `${exerciseLogs.reduce((acc, ex) => acc + ex.sets.reduce((s, set) => s + (set.completed && set.weight && set.completedReps ? set.weight * set.completedReps : 0), 0), 0).toFixed(0)}kg`,
+                    value: `${exerciseLogs
+                      .filter((_, i) => template.exercises[i]?.modalidade !== 'cardio')
+                      .reduce((acc, ex) => acc + ex.sets.reduce(
+                        (s, set) => s + (set.completed && set.weight && set.completedReps ? set.weight * set.completedReps : 0), 0
+                      ), 0).toFixed(0)}kg`,
                   },
                 ].map((stat) => (
-                  <div key={stat.label} className="bg-muted/50 rounded-2xl p-3 text-center">
-                    <p className="font-bold text-base gradient-text">{stat.value}</p>
-                    <p className="text-muted-foreground text-xs">{stat.label}</p>
+                  <div key={stat.label} className="bg-muted/40 rounded-2xl p-3 text-center flex flex-col items-center gap-1">
+                    <p className="font-bold text-lg gradient-text leading-none">{stat.value}</p>
+                    <p className="text-muted-foreground text-[10px] font-medium">{stat.label}</p>
                   </div>
                 ))}
               </div>
@@ -719,15 +784,14 @@ export function WorkoutSession({ template, draft, onClose }: Props) {
                 placeholder="Como foi o treino? Adicione observacoes..."
                 value={workoutNotes}
                 onChange={(e) => setWorkoutNotes(e.target.value)}
-                className="mb-4"
-                rows={3}
+                className="mb-4" rows={3}
               />
 
-              <Button onClick={handleFinish} className="w-full h-12" disabled={saving}>
+              <Button onClick={handleFinish} className="w-full h-14 text-base rounded-2xl" disabled={saving}>
                 <Save size={18} />
-                {saving ? 'Salvando...' : 'Salvar no Historico'}
+                {saving ? 'Salvando...' : 'Salvar no Histórico'}
               </Button>
-              <Button variant="ghost" onClick={() => setShowFinish(false)} className="w-full mt-2">
+              <Button variant="ghost" onClick={() => setShowFinish(false)} className="w-full mt-2 text-muted-foreground">
                 Continuar treinando
               </Button>
             </motion.div>
@@ -738,18 +802,13 @@ export function WorkoutSession({ template, draft, onClose }: Props) {
       {/* Modal: Cancelar */}
       <AnimatePresence>
         {showCancel && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-5"
             onClick={() => setShowCancel(false)}
           >
             <motion.div
-              initial={{ scale: 0.92, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.92, opacity: 0 }}
-              transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+              initial={{ scale: 0.92, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.92, opacity: 0 }} transition={{ type: 'spring', stiffness: 400, damping: 30 }}
               className="w-full max-w-sm bg-card rounded-2xl p-6 border border-red-500/20"
               onClick={(e) => e.stopPropagation()}
             >
@@ -759,23 +818,14 @@ export function WorkoutSession({ template, draft, onClose }: Props) {
                 </div>
                 <h2 className="text-lg font-bold text-center">Cancelar treino?</h2>
                 <p className="text-muted-foreground text-sm text-center">
-                  Todo o progresso desta sessao sera <strong>descartado</strong> e removido
-                  do rascunho. Esta acao nao pode ser desfeita.
+                  Todo o progresso sera <strong>descartado</strong>. Esta acao nao pode ser desfeita.
                 </p>
               </div>
               <div className="flex flex-col gap-2">
-                <Button
-                  variant="destructive"
-                  onClick={handleCancel}
-                  className="w-full h-11"
-                >
+                <Button variant="destructive" onClick={handleCancel} className="w-full h-11">
                   Sim, descartar tudo
                 </Button>
-                <Button
-                  variant="ghost"
-                  onClick={() => setShowCancel(false)}
-                  className="w-full h-11"
-                >
+                <Button variant="ghost" onClick={() => setShowCancel(false)} className="w-full h-11">
                   Continuar treinando
                 </Button>
               </div>
