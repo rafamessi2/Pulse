@@ -10,6 +10,22 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  TouchSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  verticalListSortingStrategy,
+  useSortable,
+  arrayMove,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import {
   db,
   renameExercise,
   renameWorkoutTemplate,
@@ -19,6 +35,7 @@ import {
   removeExerciseFromTemplate,
   updateExerciseSets,
   updateExerciseReps,
+  reorderExercises,
 } from '@/lib/db';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -39,6 +56,36 @@ interface EditState {
 function extractSubtitle(fullName: string) {
   const idx = fullName.indexOf(' – ');
   return idx !== -1 ? fullName.slice(idx + 3) : fullName;
+}
+
+// ─── Sortable exercise item wrapper ────────────────────────────────────────
+interface SortableExerciseItemProps {
+  id: string;
+  children: (props: { dragHandleProps: Record<string, unknown> }) => React.ReactNode;
+}
+
+function SortableExerciseItem({ id, children }: SortableExerciseItemProps) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 50 : undefined,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  return (
+    <div ref={setNodeRef} style={style}>
+      {children({ dragHandleProps: { ...attributes, ...listeners } as Record<string, unknown> })}
+    </div>
+  );
 }
 
 const LETTERS = 'ABCDEFGHIJ'.split('');
@@ -81,6 +128,29 @@ export default function ExerciciosPage() {
   const [expandedTemplate, setExpandedTemplate] = useState<number | null>(null);
   const [editing, setEditing] = useState<EditState | null>(null);
   const [saving, setSaving] = useState(false);
+
+  // dnd-kit sensors — PointerSensor para mouse/trackpad, TouchSensor para mobile
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 5 } }),
+  );
+
+  const handleDragEnd = async (event: DragEndEvent, templateId: number, exercises: { order: number }[]) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+
+    const oldOrders = exercises.map((e) => e.order);
+    const oldIndex = oldOrders.findIndex((o) => String(o) === String(active.id));
+    const newIndex = oldOrders.findIndex((o) => String(o) === String(over.id));
+    if (oldIndex === -1 || newIndex === -1) return;
+
+    const newOrderedOrders = arrayMove(oldOrders, oldIndex, newIndex);
+    try {
+      await reorderExercises(templateId, newOrderedOrders);
+    } catch {
+      toast({ title: 'Erro ao reordenar', variant: 'error' });
+    }
+  };
 
   const [showNewWorkout, setShowNewWorkout] = useState(false);
   const [newLetter, setNewLetter] = useState('');
@@ -384,140 +454,164 @@ export default function ExerciciosPage() {
                             <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider text-center">Reps</span>
                             <span />
                           </div>
+                          <p className="text-[10px] text-muted-foreground/60 flex items-center gap-1 px-2 mb-2">
+                            <GripVertical size={10} /> Segure e arraste para reordenar
+                          </p>
 
-                          <AnimatePresence mode="popLayout">
-                            {template.exercises.map((ex, exIdx) => {
-                              const isCardioEx = ex.modalidade === 'cardio';
-                              const isEditingName = editing?.kind === 'exercise-name' && editing.templateId === template.id && editing.exerciseOrder === ex.order;
-                              const isEditingSets = editing?.kind === 'exercise-sets' && editing.templateId === template.id && editing.exerciseOrder === ex.order;
-                              const isEditingReps = editing?.kind === 'exercise-reps' && editing.templateId === template.id && editing.exerciseOrder === ex.order;
-                              const anyEditingThis = isEditingName || isEditingSets || isEditingReps;
+                          <DndContext
+                            sensors={sensors}
+                            collisionDetection={closestCenter}
+                            onDragEnd={(event) => handleDragEnd(event, template.id!, template.exercises)}
+                          >
+                            <SortableContext
+                              items={template.exercises.map((e) => String(e.order))}
+                              strategy={verticalListSortingStrategy}
+                            >
+                              <div className="space-y-2">
+                                {template.exercises.map((ex, exIdx) => {
+                                  const isCardioEx = ex.modalidade === 'cardio';
+                                  const isEditingName = editing?.kind === 'exercise-name' && editing.templateId === template.id && editing.exerciseOrder === ex.order;
+                                  const isEditingSets = editing?.kind === 'exercise-sets' && editing.templateId === template.id && editing.exerciseOrder === ex.order;
+                                  const isEditingReps = editing?.kind === 'exercise-reps' && editing.templateId === template.id && editing.exerciseOrder === ex.order;
+                                  const anyEditingThis = isEditingName || isEditingSets || isEditingReps;
 
-                              return (
-                                <motion.div
-                                  key={ex.order}
-                                  layout
-                                  initial={{ opacity: 0, x: -8 }}
-                                  animate={{ opacity: 1, x: 0 }}
-                                  exit={{ opacity: 0, x: 8, transition: { duration: 0.15 } }}
-                                  transition={{ delay: exIdx * 0.03 }}
-                                  className={`rounded-xl border transition-all ${anyEditingThis ? 'border-primary/40 bg-primary/5' : 'border-border/20 bg-muted/20'}`}
-                                >
-                                  {isEditingName ? (
-                                    <div className="p-3 space-y-2">
-                                      <div className="flex items-center gap-1.5">
-                                        <span className="text-xs font-bold text-primary w-5 text-center shrink-0">{ex.order}</span>
-                                        <Input autoFocus value={editing!.value}
-                                          onChange={(e) => setEditing((p) => p ? { ...p, value: e.target.value } : p)}
-                                          onKeyDown={handleKey} className="h-9 text-sm font-semibold flex-1" maxLength={60} />
-                                      </div>
-                                      <div className="flex gap-2 pl-6">
-                                        <Button size="sm" onClick={confirmEdit} disabled={saving} className="flex-1 h-8 text-xs">
-                                          <Check size={13} />{saving ? '…' : 'OK'}
-                                        </Button>
-                                        <Button size="sm" variant="ghost" onClick={() => setEditing(null)} className="flex-1 h-8 text-xs">
-                                          <X size={13} />Cancel
-                                        </Button>
-                                      </div>
-                                      <p className="pl-6 text-[10px] text-muted-foreground flex items-center gap-1">
-                                        <History size={10} className="text-blue-400" />
-                                        Histórico mantém o nome original
-                                      </p>
-                                    </div>
-                                  ) : isCardioEx ? (
-                                    /* Cardio exercise row */
-                                    <div className="flex items-center gap-2 px-2 py-2">
-                                      <span className="text-[10px] font-bold text-muted-foreground text-center w-5 shrink-0">{ex.order}</span>
-                                      <div className="flex-1 min-w-0">
-                                        <div className="flex items-center gap-1">
-                                          <Timer size={10} className="text-orange-400 shrink-0" />
-                                          <p className="text-sm font-medium truncate">{ex.name}</p>
-                                          <button
-                                            onClick={() => setEditing({ kind: 'exercise-name', templateId: template.id!, exerciseOrder: ex.order, value: ex.name })}
-                                            className="w-5 h-5 rounded flex items-center justify-center hover:text-primary transition-colors shrink-0 active:scale-90"
-                                          >
-                                            <Pencil size={10} />
-                                          </button>
+                                  return (
+                                    <SortableExerciseItem key={ex.order} id={String(ex.order)}>
+                                      {({ dragHandleProps }: { dragHandleProps: any }) => (
+                                        <div className={`rounded-xl border transition-all ${anyEditingThis ? 'border-primary/40 bg-primary/5' : 'border-border/20 bg-muted/20'}`}>
+                                          {isEditingName ? (
+                                            <div className="p-3 space-y-2">
+                                              <div className="flex items-center gap-1.5">
+                                                <span className="text-xs font-bold text-primary w-5 text-center shrink-0">{ex.order}</span>
+                                                <Input autoFocus value={editing!.value}
+                                                  onChange={(e) => setEditing((p) => p ? { ...p, value: e.target.value } : p)}
+                                                  onKeyDown={handleKey} className="h-9 text-sm font-semibold flex-1" maxLength={60} />
+                                              </div>
+                                              <div className="flex gap-2 pl-6">
+                                                <Button size="sm" onClick={confirmEdit} disabled={saving} className="flex-1 h-8 text-xs">
+                                                  <Check size={13} />{saving ? '…' : 'OK'}
+                                                </Button>
+                                                <Button size="sm" variant="ghost" onClick={() => setEditing(null)} className="flex-1 h-8 text-xs">
+                                                  <X size={13} />Cancel
+                                                </Button>
+                                              </div>
+                                              <p className="pl-6 text-[10px] text-muted-foreground flex items-center gap-1">
+                                                <History size={10} className="text-blue-400" />
+                                                Histórico mantém o nome original
+                                              </p>
+                                            </div>
+                                          ) : isCardioEx ? (
+                                            /* Cardio exercise row */
+                                            <div className="flex items-center gap-2 px-2 py-2">
+                                              {/* Drag handle */}
+                                              <button
+                                                {...dragHandleProps}
+                                                className="w-5 h-8 flex items-center justify-center text-muted-foreground/40 hover:text-muted-foreground cursor-grab active:cursor-grabbing shrink-0 touch-none"
+                                                aria-label="Arrastar para reordenar"
+                                              >
+                                                <GripVertical size={14} />
+                                              </button>
+                                              <div className="flex-1 min-w-0">
+                                                <div className="flex items-center gap-1">
+                                                  <Timer size={10} className="text-orange-400 shrink-0" />
+                                                  <p className="text-sm font-medium truncate">{ex.name}</p>
+                                                  <button
+                                                    onClick={() => setEditing({ kind: 'exercise-name', templateId: template.id!, exerciseOrder: ex.order, value: ex.name })}
+                                                    className="w-5 h-5 rounded flex items-center justify-center hover:text-primary transition-colors shrink-0 active:scale-90"
+                                                  >
+                                                    <Pencil size={10} />
+                                                  </button>
+                                                </div>
+                                                <div className="flex flex-wrap gap-1 mt-0.5">
+                                                  {ex.tipoCardio && <Badge variant="muted" className="text-[9px] px-1.5 py-0">{ex.tipoCardio}</Badge>}
+                                                  {ex.tempoMinutos && <Badge variant="muted" className="text-[9px] px-1.5 py-0">{ex.tempoMinutos} min</Badge>}
+                                                  {ex.ritmoEsforco && <Badge variant="muted" className="text-[9px] px-1.5 py-0">{ex.ritmoEsforco}</Badge>}
+                                                </div>
+                                              </div>
+                                              <button
+                                                onClick={() => setDeletingExercise({ templateId: template.id!, order: ex.order, name: ex.name })}
+                                                className="w-8 h-8 rounded-lg hover:bg-red-500/15 hover:text-red-400 flex items-center justify-center transition-colors active:scale-90"
+                                              >
+                                                <Trash2 size={13} />
+                                              </button>
+                                            </div>
+                                          ) : (
+                                            /* Forca exercise row */
+                                            <div className="grid grid-cols-[20px_1fr_52px_52px_36px] gap-1.5 items-center px-2 py-2">
+                                              {/* Drag handle substitui o número */}
+                                              <button
+                                                {...dragHandleProps}
+                                                className="w-5 h-8 flex items-center justify-center text-muted-foreground/40 hover:text-muted-foreground cursor-grab active:cursor-grabbing touch-none"
+                                                aria-label="Arrastar para reordenar"
+                                              >
+                                                <GripVertical size={14} />
+                                              </button>
+
+                                              <div className="min-w-0">
+                                                <div className="flex items-center gap-1">
+                                                  <p className="text-sm font-medium truncate">{ex.name}</p>
+                                                  <button
+                                                    onClick={() => setEditing({ kind: 'exercise-name', templateId: template.id!, exerciseOrder: ex.order, value: ex.name })}
+                                                    className="w-5 h-5 rounded flex items-center justify-center hover:text-primary transition-colors shrink-0 active:scale-90"
+                                                  >
+                                                    <Pencil size={10} />
+                                                  </button>
+                                                </div>
+                                                <Badge variant="muted" className="text-[9px] px-1.5 py-0 mt-0.5">{ex.muscleGroup}</Badge>
+                                              </div>
+
+                                              <div className="flex flex-col items-center gap-0.5">
+                                                {isEditingSets ? (
+                                                  <Input autoFocus value={editing!.value}
+                                                    onChange={(e) => setEditing((p) => p ? { ...p, value: e.target.value } : p)}
+                                                    onKeyDown={handleKey} onBlur={confirmEdit}
+                                                    className="h-8 w-12 text-center text-sm font-bold px-1" type="number" min={1} max={20} />
+                                                ) : (
+                                                  <button
+                                                    onClick={() => setEditing({ kind: 'exercise-sets', templateId: template.id!, exerciseOrder: ex.order, value: String(ex.sets) })}
+                                                    className="h-8 w-12 rounded-lg bg-muted/60 hover:bg-primary/15 hover:text-primary text-sm font-bold transition-colors flex items-center justify-center gap-0.5 group"
+                                                  >
+                                                    {ex.sets}
+                                                    <Pencil size={8} className="opacity-0 group-hover:opacity-100 transition-opacity" />
+                                                  </button>
+                                                )}
+                                                <span className="text-[9px] text-muted-foreground">séries</span>
+                                              </div>
+
+                                              <div className="flex flex-col items-center gap-0.5">
+                                                {isEditingReps ? (
+                                                  <Input autoFocus value={editing!.value}
+                                                    onChange={(e) => setEditing((p) => p ? { ...p, value: e.target.value } : p)}
+                                                    onKeyDown={handleKey} onBlur={confirmEdit}
+                                                    className="h-8 w-12 text-center text-sm font-bold px-1" />
+                                                ) : (
+                                                  <button
+                                                    onClick={() => setEditing({ kind: 'exercise-reps', templateId: template.id!, exerciseOrder: ex.order, value: ex.reps })}
+                                                    className="h-8 w-12 rounded-lg bg-muted/60 hover:bg-primary/15 hover:text-primary text-sm font-bold transition-colors flex items-center justify-center gap-0.5 group"
+                                                  >
+                                                    {ex.reps}
+                                                    <Pencil size={8} className="opacity-0 group-hover:opacity-100 transition-opacity" />
+                                                  </button>
+                                                )}
+                                                <span className="text-[9px] text-muted-foreground">reps</span>
+                                              </div>
+
+                                              <button
+                                                onClick={() => setDeletingExercise({ templateId: template.id!, order: ex.order, name: ex.name })}
+                                                className="w-8 h-8 rounded-lg hover:bg-red-500/15 hover:text-red-400 flex items-center justify-center transition-colors active:scale-90 mx-auto"
+                                              >
+                                                <Trash2 size={13} />
+                                              </button>
+                                            </div>
+                                          )}
                                         </div>
-                                        <div className="flex flex-wrap gap-1 mt-0.5">
-                                          {ex.tipoCardio && <Badge variant="muted" className="text-[9px] px-1.5 py-0">{ex.tipoCardio}</Badge>}
-                                          {ex.tempoMinutos && <Badge variant="muted" className="text-[9px] px-1.5 py-0">{ex.tempoMinutos} min</Badge>}
-                                          {ex.ritmoEsforco && <Badge variant="muted" className="text-[9px] px-1.5 py-0">{ex.ritmoEsforco}</Badge>}
-                                        </div>
-                                      </div>
-                                      <button
-                                        onClick={() => setDeletingExercise({ templateId: template.id!, order: ex.order, name: ex.name })}
-                                        className="w-8 h-8 rounded-lg hover:bg-red-500/15 hover:text-red-400 flex items-center justify-center transition-colors active:scale-90"
-                                      >
-                                        <Trash2 size={13} />
-                                      </button>
-                                    </div>
-                                  ) : (
-                                    /* Forca exercise row */
-                                    <div className="grid grid-cols-[20px_1fr_52px_52px_36px] gap-1.5 items-center px-2 py-2">
-                                      <span className="text-[10px] font-bold text-muted-foreground text-center">{ex.order}</span>
-
-                                      <div className="min-w-0">
-                                        <div className="flex items-center gap-1">
-                                          <p className="text-sm font-medium truncate">{ex.name}</p>
-                                          <button
-                                            onClick={() => setEditing({ kind: 'exercise-name', templateId: template.id!, exerciseOrder: ex.order, value: ex.name })}
-                                            className="w-5 h-5 rounded flex items-center justify-center hover:text-primary transition-colors shrink-0 active:scale-90"
-                                          >
-                                            <Pencil size={10} />
-                                          </button>
-                                        </div>
-                                        <Badge variant="muted" className="text-[9px] px-1.5 py-0 mt-0.5">{ex.muscleGroup}</Badge>
-                                      </div>
-
-                                      <div className="flex flex-col items-center gap-0.5">
-                                        {isEditingSets ? (
-                                          <Input autoFocus value={editing!.value}
-                                            onChange={(e) => setEditing((p) => p ? { ...p, value: e.target.value } : p)}
-                                            onKeyDown={handleKey} onBlur={confirmEdit}
-                                            className="h-8 w-12 text-center text-sm font-bold px-1" type="number" min={1} max={20} />
-                                        ) : (
-                                          <button
-                                            onClick={() => setEditing({ kind: 'exercise-sets', templateId: template.id!, exerciseOrder: ex.order, value: String(ex.sets) })}
-                                            className="h-8 w-12 rounded-lg bg-muted/60 hover:bg-primary/15 hover:text-primary text-sm font-bold transition-colors flex items-center justify-center gap-0.5 group"
-                                          >
-                                            {ex.sets}
-                                            <Pencil size={8} className="opacity-0 group-hover:opacity-100 transition-opacity" />
-                                          </button>
-                                        )}
-                                        <span className="text-[9px] text-muted-foreground">séries</span>
-                                      </div>
-
-                                      <div className="flex flex-col items-center gap-0.5">
-                                        {isEditingReps ? (
-                                          <Input autoFocus value={editing!.value}
-                                            onChange={(e) => setEditing((p) => p ? { ...p, value: e.target.value } : p)}
-                                            onKeyDown={handleKey} onBlur={confirmEdit}
-                                            className="h-8 w-12 text-center text-sm font-bold px-1" />
-                                        ) : (
-                                          <button
-                                            onClick={() => setEditing({ kind: 'exercise-reps', templateId: template.id!, exerciseOrder: ex.order, value: ex.reps })}
-                                            className="h-8 w-12 rounded-lg bg-muted/60 hover:bg-primary/15 hover:text-primary text-sm font-bold transition-colors flex items-center justify-center gap-0.5 group"
-                                          >
-                                            {ex.reps}
-                                            <Pencil size={8} className="opacity-0 group-hover:opacity-100 transition-opacity" />
-                                          </button>
-                                        )}
-                                        <span className="text-[9px] text-muted-foreground">reps</span>
-                                      </div>
-
-                                      <button
-                                        onClick={() => setDeletingExercise({ templateId: template.id!, order: ex.order, name: ex.name })}
-                                        className="w-8 h-8 rounded-lg hover:bg-red-500/15 hover:text-red-400 flex items-center justify-center transition-colors active:scale-90 mx-auto"
-                                      >
-                                        <Trash2 size={13} />
-                                      </button>
-                                    </div>
-                                  )}
-                                </motion.div>
-                              );
-                            })}
-                          </AnimatePresence>
+                                      )}
+                                    </SortableExerciseItem>
+                                  );
+                                })}
+                              </div>
+                            </SortableContext>
+                          </DndContext>
 
                           {/* Formulário de novo exercício */}
                           <AnimatePresence>

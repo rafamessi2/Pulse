@@ -412,6 +412,81 @@ export async function updateExerciseReps(
   });
 }
 
+// Reordena os exercícios de um template dado um novo array de `order` values
+// newOrderedOrders: lista de `ex.order` na nova sequência desejada
+export async function reorderExercises(
+  templateId: number,
+  newOrderedOrders: number[]
+): Promise<void> {
+  const template = await db.workoutTemplates.get(templateId);
+  if (!template) throw new Error('Template nao encontrado');
+
+  // Mapeia order -> exercício
+  const byOrder = new Map(template.exercises.map((e) => [e.order, e]));
+
+  // Reconstrói a lista na nova ordem, reatribuindo order sequencial (1, 2, 3...)
+  const reordered = newOrderedOrders
+    .map((oldOrder, idx) => {
+      const ex = byOrder.get(oldOrder);
+      if (!ex) return null;
+      return { ...ex, order: idx + 1 };
+    })
+    .filter(Boolean) as typeof template.exercises;
+
+  await db.workoutTemplates.update(templateId, {
+    exercises: reordered,
+    updatedAt: new Date(),
+  });
+}
+
+// ─── Edição de sessões salvas no histórico ──────────────────────────────────
+
+/** Remove uma sessão de treino específica do histórico */
+export async function deleteWorkoutSession(sessionId: number): Promise<void> {
+  await db.workoutSessions.delete(sessionId);
+}
+
+/** Remove uma sessão de cardio específica do histórico */
+export async function deleteCardioSession(sessionId: number): Promise<void> {
+  await db.cardioSessions.delete(sessionId);
+}
+
+/** Atualiza a duração (minutos) de uma sessão de treino */
+export async function updateSessionDuration(sessionId: number, durationMinutes: number): Promise<void> {
+  await db.workoutSessions.update(sessionId, { durationMinutes });
+}
+
+/** Atualiza peso e reps de uma série específica dentro de uma sessão */
+export async function updateSessionSet(
+  sessionId: number,
+  exerciseIdx: number,
+  setIdx: number,
+  patch: { weight?: number | null; completedReps?: number | null }
+): Promise<void> {
+  const session = await db.workoutSessions.get(sessionId);
+  if (!session) throw new Error('Sessão não encontrada');
+
+  const exercises = session.exercises.map((ex, ei) => {
+    if (ei !== exerciseIdx) return ex;
+    return {
+      ...ex,
+      sets: ex.sets.map((s, si) => {
+        if (si !== setIdx) return s;
+        return { ...s, ...patch };
+      }),
+    };
+  });
+
+  // Recalcula o volume total da sessão
+  const totalVolume = exercises.reduce((acc, ex) =>
+    acc + ex.sets.reduce((a, s) => {
+      if (!s.completed || !s.weight || !s.completedReps) return a;
+      return a + s.weight * s.completedReps;
+    }, 0), 0);
+
+  await db.workoutSessions.update(sessionId, { exercises, totalVolume });
+}
+
 export async function getPersonalRecords(): Promise<Record<string, { weight: number; reps: number; date: Date }>> {
   const sessions = await db.workoutSessions.toArray();
   const records: Record<string, { weight: number; reps: number; date: Date }> = {};
@@ -434,19 +509,34 @@ export async function getPersonalRecords(): Promise<Record<string, { weight: num
 }
 
 export async function getWeeklyStats(weekStart: Date): Promise<{ workouts: number; workoutsRotina: number; cardios: number; volume: number; km: number }> {
+  // weekEnd = início da próxima semana (exclusive)
   const weekEnd = new Date(weekStart);
   weekEnd.setDate(weekEnd.getDate() + 7);
 
-  const [workouts, cardios] = await Promise.all([
-    db.workoutSessions.where('date').between(weekStart, weekEnd).toArray(),
-    db.cardioSessions.where('date').between(weekStart, weekEnd).toArray(),
+  const weekStartTs = weekStart.getTime();
+  const weekEndTs = weekEnd.getTime();
+
+  // Busca todas as sessoes e filtra por timestamp para evitar problemas de timezone
+  const [allWorkouts, allCardios] = await Promise.all([
+    db.workoutSessions.toArray(),
+    db.cardioSessions.toArray(),
   ]);
 
-  // workoutsRotina: treinos finalizados via aba Treino (forca + cardio de rotina)
-  // Registros antigos (sem origem) sao tratados como treino_rotina por retrocompatibilidade
-  const workoutsRotina =
-    workouts.filter((s) => !s.origem || s.origem === 'treino_rotina').length +
-    cardios.filter((s) => s.origem === 'treino_rotina').length;
+  const workouts = allWorkouts.filter((s) => {
+    const t = new Date(s.date).getTime();
+    return t >= weekStartTs && t < weekEndTs;
+  });
+
+  const cardios = allCardios.filter((s) => {
+    const t = new Date(s.date).getTime();
+    return t >= weekStartTs && t < weekEndTs;
+  });
+
+  // workoutsRotina: apenas sessoes de musculacao finalizadas via aba Treino
+  // NAO inclui cardios de rotina — o contador "Semana Atual" so conta treinos de musculacao
+  const workoutsRotina = workouts.filter(
+    (s) => !s.origem || s.origem === 'treino_rotina'
+  ).length;
 
   const volume = workouts.reduce((acc, s) => acc + (s.totalVolume ?? 0), 0);
   const km = cardios.reduce((acc, s) => acc + s.distance, 0);
